@@ -130,6 +130,7 @@
   }
   .recording-status.idle { background: #f1f5f9; color: var(--text-light); }
   .recording-status.recording { background: #fef2f2; color: var(--danger); }
+  .recording-status.warning { background: #fffbeb; color: #b45309; }
   .recording-dot {
     width: 12px; height: 12px;
     background: var(--danger);
@@ -193,25 +194,68 @@
     margin-bottom: 12px;
   }
   .q-btn {
-    padding: 6px 14px;
+    padding: 8px 16px;
     border: 2px solid var(--border);
     border-radius: 20px;
     background: white;
-    font-size: 13px;
+    font-size: 14px;
     cursor: pointer;
     transition: all 0.2s;
-    font-weight: 500;
+    font-weight: 600;
   }
   .q-btn:hover { border-color: var(--primary); color: var(--primary); }
   .q-btn.active {
     background: var(--primary);
     color: white;
     border-color: var(--primary);
+    box-shadow: 0 2px 8px rgba(37,99,235,0.4);
+    transform: scale(1.05);
   }
   .q-btn.has-answer {
     background: #f0fdf4;
     border-color: var(--success);
     color: var(--success);
+  }
+  .current-question-banner {
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    color: white;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 15px;
+    margin-bottom: 12px;
+    text-align: center;
+    animation: bannerPulse 2s ease-in-out infinite;
+  }
+  @keyframes bannerPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.85; }
+  }
+  .transcript-entry {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+  .transcript-entry .reassign-btn {
+    flex-shrink: 0;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 11px;
+    padding: 1px 5px;
+    cursor: pointer;
+    color: var(--text-light);
+    opacity: 0.4;
+    transition: opacity 0.2s;
+  }
+  .transcript-entry:hover .reassign-btn {
+    opacity: 1;
+  }
+  .transcript-entry .reassign-btn:hover {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
   }
 
   /* ===== Scoring ===== */
@@ -459,10 +503,11 @@
       </button>
     </div>
 
-    <h3>現在の質問タグ（クリックで回答を紐づけ）</h3>
+    <div id="currentQuestionBanner"></div>
+    <h3>質問タグ（面接中に質問が変わったらクリック）</h3>
     <div class="question-selector" id="questionSelector"></div>
 
-    <h3>文字起こし結果</h3>
+    <h3>文字起こし結果 <span style="font-size: 12px; color: var(--text-light); font-weight: 400;">（各行の左ボタンで質問の紐づけを変更できます）</span></h3>
     <div class="transcript-area" id="transcriptArea">
       <p style="color: var(--text-light); font-size: 14px;">
         録音を開始すると、ここにリアルタイムで文字起こしが表示されます。<br>
@@ -777,6 +822,7 @@ function initSpeechRecognition() {
       if (result.isFinal) {
         const text = result[0].transcript.trim();
         if (text) {
+          lastSpeechTime = Date.now();
           const entry = {
             text: text,
             timestamp: getElapsedTime(),
@@ -811,25 +857,78 @@ function initSpeechRecognition() {
       alert('マイクのアクセスが許可されていません。ブラウザの設定でマイクを許可してください。');
       stopRecording();
     } else if (event.error === 'no-speech') {
-      // Auto restart on no-speech
+      // Show warning but auto restart
+      showRecordingWarning('無音を検知...自動で再開します');
+      restartRecognition(300);
+    } else if (event.error === 'network') {
+      showRecordingWarning('ネットワークエラー...再接続中');
+      restartRecognition(1000);
+    } else if (event.error === 'audio-capture') {
+      showRecordingWarning('マイクエラー...再接続中');
+      restartRecognition(1000);
     } else if (event.error !== 'aborted') {
-      // Try to restart on other errors
-      if (isRecording) {
-        setTimeout(() => {
-          try { recognition.start(); } catch(e) {}
-        }, 500);
-      }
+      showRecordingWarning('音声認識エラー...再接続中');
+      restartRecognition(500);
     }
   };
 
   recognition.onend = () => {
     // Auto restart if still recording
     if (isRecording) {
-      setTimeout(() => {
-        try { recognition.start(); } catch(e) {}
-      }, 200);
+      restartRecognition(100);
     }
   };
+}
+
+let restartAttempts = 0;
+let lastSpeechTime = Date.now();
+let healthCheckInterval = null;
+
+function restartRecognition(delay) {
+  if (!isRecording) return;
+  restartAttempts++;
+  setTimeout(() => {
+    try {
+      recognition.start();
+      restartAttempts = 0;
+      // Restore normal recording status after successful restart
+      setTimeout(() => {
+        if (isRecording) {
+          const status = document.getElementById('recordingStatus');
+          status.className = 'recording-status recording';
+          status.innerHTML = '<div class="recording-dot"></div> 録音中...';
+        }
+      }, 1000);
+    } catch(e) {
+      if (restartAttempts < 10) {
+        restartRecognition(Math.min(delay * 2, 3000));
+      } else {
+        showRecordingWarning('再接続に失敗しました。「録音開始」を押し直してください');
+        stopRecording();
+      }
+    }
+  }, delay);
+}
+
+function showRecordingWarning(msg) {
+  const status = document.getElementById('recordingStatus');
+  status.className = 'recording-status warning';
+  status.innerHTML = '⚠ ' + msg;
+}
+
+function startHealthCheck() {
+  if (healthCheckInterval) clearInterval(healthCheckInterval);
+  healthCheckInterval = setInterval(() => {
+    if (!isRecording) return;
+    const elapsed = Date.now() - lastSpeechTime;
+    // If no speech for 30 seconds, show a subtle warning
+    if (elapsed > 30000) {
+      const status = document.getElementById('recordingStatus');
+      if (status.className.includes('recording')) {
+        status.innerHTML = '<div class="recording-dot"></div> 録音中...（音声待機中 - マイクは接続されています）';
+      }
+    }
+  }, 10000);
 }
 
 function startRecording() {
@@ -840,6 +939,8 @@ function startRecording() {
 
   isRecording = true;
   startTime = startTime || Date.now();
+  lastSpeechTime = Date.now();
+  restartAttempts = 0;
   recognition.start();
 
   document.getElementById('btnStart').disabled = true;
@@ -847,16 +948,19 @@ function startRecording() {
 
   const status = document.getElementById('recordingStatus');
   status.className = 'recording-status recording';
-  status.innerHTML = '<div class="recording-dot"></div> 録音中...（マイクから音声を取得しています）';
+  status.innerHTML = '<div class="recording-dot"></div> 録音中...';
 
   // Start timer
   if (!timerInterval) {
     timerInterval = setInterval(updateTimer, 1000);
   }
+  startHealthCheck();
 }
 
 function stopRecording() {
   isRecording = false;
+  restartAttempts = 0;
+  if (healthCheckInterval) { clearInterval(healthCheckInterval); healthCheckInterval = null; }
   if (recognition) {
     try { recognition.stop(); } catch(e) {}
   }
@@ -899,7 +1003,7 @@ function renderTranscript() {
   let html = '';
   let lastQId = null;
 
-  transcriptData.forEach(entry => {
+  transcriptData.forEach((entry, idx) => {
     if (entry.questionId !== lastQId && entry.questionId) {
       const q = questions.find(q => q.id === entry.questionId);
       if (q) {
@@ -907,16 +1011,71 @@ function renderTranscript() {
       }
       lastQId = entry.questionId;
     }
-    html += `<span class="timestamp">[${entry.timestamp}]</span>`;
-    html += `<span class="final">${escapeHtml(entry.text)}</span><br>`;
+    html += `<div class="transcript-entry">`;
+    html += `<button class="reassign-btn" onclick="showReassignMenu(${idx})" title="この発言の質問タグを変更">Q${entry.questionId || '?'}</button>`;
+    html += `<div><span class="timestamp">[${entry.timestamp}]</span> `;
+    html += `<span class="final">${escapeHtml(entry.text)}</span></div>`;
+    html += `</div>`;
   });
 
   html += '<span class="interim" id="interimText"></span>';
   area.innerHTML = html;
   area.scrollTop = area.scrollHeight;
 
-  // Update question buttons
+  // Update question buttons & banner
   renderQuestionSelector();
+  updateCurrentQuestionBanner();
+
+  // Rebuild answers from transcriptData
+  rebuildAnswers();
+}
+
+function rebuildAnswers() {
+  answers = {};
+  transcriptData.forEach(entry => {
+    if (entry.questionId) {
+      if (!answers[entry.questionId]) answers[entry.questionId] = '';
+      answers[entry.questionId] += entry.text + ' ';
+    }
+  });
+}
+
+function showReassignMenu(idx) {
+  const entry = transcriptData[idx];
+  const options = questions.map(q =>
+    `Q${q.id}: ${q.title}${entry.questionId === q.id ? ' (現在)' : ''}`
+  ).join('\n');
+
+  const choice = prompt(
+    `この発言の質問タグを変更します：\n「${entry.text.substring(0, 40)}...」\n\n番号を入力してください：\n${options}\n\n0 = タグなしにする`,
+    entry.questionId || ''
+  );
+
+  if (choice === null) return;
+  const num = parseInt(choice);
+
+  if (num === 0) {
+    transcriptData[idx].questionId = null;
+  } else if (questions.find(q => q.id === num)) {
+    transcriptData[idx].questionId = num;
+  } else {
+    alert('無効な番号です');
+    return;
+  }
+
+  renderTranscript();
+}
+
+function updateCurrentQuestionBanner() {
+  const banner = document.getElementById('currentQuestionBanner');
+  if (currentQuestionId) {
+    const q = questions.find(q => q.id === currentQuestionId);
+    banner.innerHTML = `<div class="current-question-banner">現在の質問 ▶ Q${q.id}: ${q.title}</div>`;
+  } else if (isRecording) {
+    banner.innerHTML = `<div class="current-question-banner" style="background: #b45309;">⚠ 質問タグが未選択です — 上のボタンで質問を選んでください</div>`;
+  } else {
+    banner.innerHTML = '';
+  }
 }
 
 function clearTranscript() {
@@ -946,13 +1105,9 @@ function selectQuestion(id) {
     currentQuestionId = null; // Toggle off
   } else {
     currentQuestionId = id;
-    // Add marker in transcript
-    if (isRecording) {
-      const q = questions.find(q => q.id === id);
-      // The marker will appear when next speech is recognized
-    }
   }
   renderQuestionSelector();
+  updateCurrentQuestionBanner();
 }
 
 // ===== Score Items =====
