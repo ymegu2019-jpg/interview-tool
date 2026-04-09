@@ -1,0 +1,1609 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>面接文字起こし＆採点ツール</title>
+<style>
+  :root {
+    --primary: #2563eb;
+    --primary-dark: #1d4ed8;
+    --success: #16a34a;
+    --warning: #f59e0b;
+    --danger: #dc2626;
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --text: #1e293b;
+    --text-light: #64748b;
+    --border: #e2e8f0;
+    --radius: 12px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  /* ===== Header ===== */
+  .header {
+    background: linear-gradient(135deg, var(--primary), #7c3aed);
+    color: white;
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .header h1 { font-size: 18px; font-weight: 700; }
+  .header-info { font-size: 13px; opacity: 0.9; }
+
+  /* ===== Tabs ===== */
+  .tabs {
+    display: flex;
+    background: var(--card);
+    border-bottom: 2px solid var(--border);
+    position: sticky;
+    top: 56px;
+    z-index: 99;
+  }
+  .tab {
+    flex: 1;
+    padding: 14px;
+    text-align: center;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    transition: all 0.2s;
+    color: var(--text-light);
+  }
+  .tab:hover { background: #f1f5f9; }
+  .tab.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+  }
+
+  /* ===== Panels ===== */
+  .panel { display: none; padding: 20px; max-width: 900px; margin: 0 auto; }
+  .panel.active { display: block; }
+
+  /* ===== Cards ===== */
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    border: 1px solid var(--border);
+  }
+  .card h3 {
+    font-size: 15px;
+    margin-bottom: 12px;
+    color: var(--primary);
+  }
+
+  /* ===== Buttons ===== */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 24px;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary { background: var(--primary); color: white; }
+  .btn-primary:hover:not(:disabled) { background: var(--primary-dark); }
+  .btn-danger { background: var(--danger); color: white; }
+  .btn-danger:hover:not(:disabled) { background: #b91c1c; }
+  .btn-success { background: var(--success); color: white; }
+  .btn-success:hover:not(:disabled) { background: #15803d; }
+  .btn-outline {
+    background: white;
+    color: var(--primary);
+    border: 2px solid var(--primary);
+  }
+  .btn-outline:hover:not(:disabled) { background: #eff6ff; }
+  .btn-sm { padding: 8px 16px; font-size: 13px; }
+
+  /* ===== Transcription ===== */
+  .recording-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 20px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .recording-status.idle { background: #f1f5f9; color: var(--text-light); }
+  .recording-status.recording { background: #fef2f2; color: var(--danger); }
+  .recording-dot {
+    width: 12px; height: 12px;
+    background: var(--danger);
+    border-radius: 50%;
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+
+  .controls {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .transcript-area {
+    min-height: 200px;
+    max-height: 400px;
+    overflow-y: auto;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    font-size: 15px;
+    line-height: 1.8;
+    background: #fafbfc;
+  }
+  .transcript-area .interim {
+    color: var(--text-light);
+    font-style: italic;
+  }
+  .transcript-area .final {
+    color: var(--text);
+  }
+  .transcript-area .timestamp {
+    color: var(--primary);
+    font-size: 12px;
+    font-weight: 600;
+    margin-right: 6px;
+  }
+  .transcript-area .question-marker {
+    display: block;
+    background: linear-gradient(135deg, #eff6ff, #e0e7ff);
+    color: var(--primary-dark);
+    padding: 6px 12px;
+    border-radius: 6px;
+    margin: 10px 0 6px;
+    font-weight: 700;
+    font-size: 13px;
+    border-left: 4px solid var(--primary);
+  }
+
+  /* ===== Question Selector ===== */
+  .question-selector {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .q-btn {
+    padding: 6px 14px;
+    border: 2px solid var(--border);
+    border-radius: 20px;
+    background: white;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-weight: 500;
+  }
+  .q-btn:hover { border-color: var(--primary); color: var(--primary); }
+  .q-btn.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+  }
+  .q-btn.has-answer {
+    background: #f0fdf4;
+    border-color: var(--success);
+    color: var(--success);
+  }
+
+  /* ===== Scoring ===== */
+  .score-item {
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 14px;
+    transition: border-color 0.2s;
+  }
+  .score-item.scored { border-color: var(--success); }
+  .score-item h4 {
+    font-size: 14px;
+    margin-bottom: 4px;
+  }
+  .score-item .criteria-desc {
+    font-size: 13px;
+    color: var(--text-light);
+    margin-bottom: 10px;
+  }
+  .score-buttons {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .score-btn {
+    width: 42px;
+    height: 42px;
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    background: white;
+    font-size: 18px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .score-btn:hover { border-color: var(--primary); color: var(--primary); }
+  .score-btn.selected {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+  }
+  .answer-preview {
+    background: #f8fafc;
+    border-radius: 6px;
+    padding: 10px;
+    font-size: 13px;
+    color: var(--text-light);
+    max-height: 80px;
+    overflow-y: auto;
+    margin-top: 8px;
+  }
+  .score-comment {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    margin-top: 8px;
+    resize: vertical;
+    font-family: inherit;
+  }
+
+  /* ===== Results ===== */
+  .total-score {
+    text-align: center;
+    padding: 30px;
+    margin-bottom: 20px;
+  }
+  .total-score .score-number {
+    font-size: 64px;
+    font-weight: 800;
+    line-height: 1;
+  }
+  .total-score .score-label {
+    font-size: 18px;
+    color: var(--text-light);
+    margin-top: 8px;
+  }
+  .total-score.pass .score-number { color: var(--success); }
+  .total-score.fail .score-number { color: var(--danger); }
+  .result-badge {
+    display: inline-block;
+    padding: 8px 24px;
+    border-radius: 20px;
+    font-size: 20px;
+    font-weight: 700;
+    margin-top: 10px;
+  }
+  .result-badge.pass { background: #f0fdf4; color: var(--success); }
+  .result-badge.fail { background: #fef2f2; color: var(--danger); }
+
+  /* ===== Settings ===== */
+  .setting-group { margin-bottom: 20px; }
+  .setting-group label {
+    display: block;
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 6px;
+  }
+  .setting-group textarea,
+  .setting-group input {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  .setting-group textarea { min-height: 100px; resize: vertical; }
+
+  .question-edit-item {
+    background: #f8fafc;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 10px;
+  }
+  .question-edit-item input { margin-bottom: 6px; }
+  .question-edit-item .criteria-rows { margin-top: 8px; }
+  .criteria-row {
+    display: grid;
+    grid-template-columns: 50px 1fr;
+    gap: 8px;
+    margin-bottom: 4px;
+    align-items: center;
+  }
+  .criteria-row span {
+    font-weight: 600;
+    font-size: 13px;
+    text-align: center;
+  }
+  .criteria-row input { font-size: 13px; padding: 6px 8px; }
+
+  /* ===== AI Scoring ===== */
+  .ai-scoring-card {
+    background: linear-gradient(135deg, #eff6ff, #f0fdf4);
+    border: 2px solid var(--primary);
+  }
+  .ai-progress {
+    display: none;
+    margin-top: 12px;
+  }
+  .ai-progress.active { display: block; }
+  .ai-progress-bar {
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .ai-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary), var(--success));
+    border-radius: 3px;
+    width: 0%;
+    transition: width 0.5s ease;
+    animation: aiPulse 1.5s ease-in-out infinite;
+  }
+  @keyframes aiPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
+  .ai-status {
+    font-size: 13px;
+    color: var(--text-light);
+    margin-top: 8px;
+    text-align: center;
+  }
+  .ai-reason {
+    background: #f0f9ff;
+    border-left: 3px solid var(--primary);
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--text);
+    margin-top: 6px;
+    border-radius: 0 6px 6px 0;
+    line-height: 1.5;
+  }
+
+  /* ===== Timer ===== */
+  .timer {
+    font-size: 14px;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 20px;
+    background: rgba(255,255,255,0.2);
+  }
+
+  /* ===== Export ===== */
+  .export-preview {
+    white-space: pre-wrap;
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    font-size: 13px;
+    max-height: 400px;
+    overflow-y: auto;
+    font-family: 'Courier New', monospace;
+  }
+
+  /* ===== Responsive ===== */
+  @media (max-width: 600px) {
+    .header { padding: 12px 16px; }
+    .header h1 { font-size: 15px; }
+    .panel { padding: 14px; }
+    .controls { gap: 8px; }
+    .btn { padding: 10px 16px; font-size: 14px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div>
+    <h1>面接文字起こし＆採点ツール</h1>
+    <div class="header-info">Google Meet 面接サポート</div>
+  </div>
+  <div class="timer" id="timer">00:00:00</div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+  <div class="tab active" data-tab="transcribe">文字起こし</div>
+  <div class="tab" data-tab="score">採点</div>
+  <div class="tab" data-tab="result">結果</div>
+  <div class="tab" data-tab="settings">設定</div>
+</div>
+
+<!-- Panel: 文字起こし -->
+<div class="panel active" id="panel-transcribe">
+  <div class="card">
+    <div class="recording-status idle" id="recordingStatus">
+      待機中 — 「録音開始」を押してください
+    </div>
+    <div class="controls">
+      <button class="btn btn-primary" id="btnStart" onclick="startRecording()">
+        🎙 録音開始
+      </button>
+      <button class="btn btn-danger" id="btnStop" onclick="stopRecording()" disabled>
+        ⏹ 録音停止
+      </button>
+      <button class="btn btn-outline btn-sm" onclick="clearTranscript()">
+        クリア
+      </button>
+    </div>
+
+    <h3>現在の質問タグ（クリックで回答を紐づけ）</h3>
+    <div class="question-selector" id="questionSelector"></div>
+
+    <h3>文字起こし結果</h3>
+    <div class="transcript-area" id="transcriptArea">
+      <p style="color: var(--text-light); font-size: 14px;">
+        録音を開始すると、ここにリアルタイムで文字起こしが表示されます。<br>
+        Google Meetの音声はPCのマイクから拾います。
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>使い方</h3>
+    <ol style="font-size: 14px; padding-left: 20px; color: var(--text-light);">
+      <li>Google Meetとこのページをブラウザで並べて表示します</li>
+      <li>「録音開始」を押してマイク使用を許可します</li>
+      <li>面接の質問が始まったら、上の質問ボタンをクリックして現在の質問をマークします</li>
+      <li>面接終了後「採点」タブで各回答を採点します</li>
+      <li>「結果」タブで合否と詳細を確認・エクスポートできます</li>
+    </ol>
+  </div>
+</div>
+
+<!-- Panel: 採点 -->
+<div class="panel" id="panel-score">
+  <div class="card ai-scoring-card">
+    <h3 style="margin-bottom: 8px;">🤖 AI採点（Gemini Web連携）</h3>
+    <p style="font-size: 13px; color: var(--text-light); margin-bottom: 12px;">
+      文字起こし結果を採点プロンプトに自動で埋め込み、Geminiで採点 → 結果を貼り戻すだけ！
+    </p>
+
+    <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
+      <span style="background: var(--primary); color: white; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0;">1</span>
+      <span style="font-size: 14px; font-weight: 600;">採点プロンプトをコピー</span>
+    </div>
+    <div class="controls" style="margin-bottom: 16px;">
+      <button class="btn btn-primary" onclick="copyGeminiPrompt()">
+        📋 プロンプトをコピー
+      </button>
+      <button class="btn btn-outline btn-sm" onclick="openGemini()">
+        Geminiを開く ↗
+      </button>
+    </div>
+
+    <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
+      <span style="background: var(--primary); color: white; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0;">2</span>
+      <span style="font-size: 14px; font-weight: 600;">Geminiの採点結果を貼り付け</span>
+    </div>
+    <textarea id="geminiResultInput" rows="6" style="width: 100%; padding: 10px; border: 2px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; resize: vertical;" placeholder="Geminiの採点結果をここにペースト...&#10;&#10;例:&#10;① 4点 - 理由...&#10;② 3点 - 理由..."></textarea>
+    <div class="controls" style="margin-top: 8px;">
+      <button class="btn btn-success" onclick="parseGeminiResult()">
+        ⚡ 採点結果を反映
+      </button>
+    </div>
+    <div id="parseResultMsg" style="margin-top: 8px; font-size: 13px;"></div>
+  </div>
+
+  <div class="card" style="border: 1px dashed var(--border);">
+    <details>
+      <summary style="cursor: pointer; font-weight: 600; font-size: 14px; color: var(--text-light);">
+        📡 API方式（上級者向け / Gemini APIキーが必要）
+      </summary>
+      <div style="margin-top: 12px;">
+        <p style="font-size: 13px; color: var(--text-light); margin-bottom: 12px;">
+          APIキーがある場合はワンクリックで自動採点できます。
+        </p>
+        <div class="controls">
+          <button class="btn btn-outline btn-sm" id="btnAiScore" onclick="aiAutoScore()">
+            API自動採点（タグ付き）
+          </button>
+          <button class="btn btn-outline btn-sm" id="btnAiScoreAll" onclick="aiAutoScoreAll()">
+            API自動採点（全文判定）
+          </button>
+        </div>
+        <div class="ai-progress" id="aiProgress">
+          <div class="ai-progress-bar">
+            <div class="ai-progress-fill" id="aiProgressFill"></div>
+          </div>
+          <div class="ai-status" id="aiStatus">AIが採点中...</div>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+      <h3 style="margin: 0;">採点（各項目 1〜5点）</h3>
+      <span id="scoredCount" style="font-size: 14px; color: var(--text-light);">0 / 5 採点済み</span>
+    </div>
+    <div id="scoreItems"></div>
+  </div>
+
+  <div style="text-align: center; margin-top: 12px;">
+    <button class="btn btn-success" onclick="showResult()">
+      採点結果を確認 →
+    </button>
+  </div>
+</div>
+
+<!-- Panel: 結果 -->
+<div class="panel" id="panel-result">
+  <div class="card">
+    <div class="total-score" id="totalScore">
+      <div class="score-number">-- / 25</div>
+      <div class="score-label">合計スコア（25点満点）</div>
+      <div class="result-badge" id="resultBadge" style="display:none;"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>採点詳細</h3>
+    <div id="resultDetail"></div>
+  </div>
+
+  <div class="card">
+    <h3>面接メモ</h3>
+    <textarea id="interviewMemo" class="score-comment" rows="3"
+      placeholder="面接全体の所感をメモ..."></textarea>
+  </div>
+
+  <div class="card">
+    <h3>エクスポート</h3>
+    <div class="controls">
+      <button class="btn btn-outline btn-sm" onclick="exportText()">テキストコピー</button>
+      <button class="btn btn-outline btn-sm" onclick="exportCSV()">CSVダウンロード</button>
+    </div>
+    <div class="export-preview" id="exportPreview" style="display:none;"></div>
+  </div>
+</div>
+
+<!-- Panel: 設定 -->
+<div class="panel" id="panel-settings">
+  <div class="card ai-scoring-card">
+    <h3>🔑 AI自動採点 API設定</h3>
+    <div class="setting-group">
+      <label>Gemini APIキー</label>
+      <input type="password" id="geminiApiKey" placeholder="AIza...（Google AI Studioで取得）">
+      <p style="font-size: 12px; color: var(--text-light); margin-top: 4px;">
+        APIキーは <a href="https://aistudio.google.com/apikey" target="_blank">Google AI Studio</a> で無料取得できます。<br>
+        キーはこのブラウザ内にのみ保存され、外部に送信されません（Gemini APIへの採点リクエスト時のみ使用）。
+      </p>
+    </div>
+    <div class="controls">
+      <button class="btn btn-primary btn-sm" onclick="testApiKey()">接続テスト</button>
+      <button class="btn btn-outline btn-sm" onclick="toggleApiKeyVisibility()">キーを表示/非表示</button>
+    </div>
+    <div id="apiTestResult" style="margin-top: 8px; font-size: 13px;"></div>
+  </div>
+
+  <div class="card">
+    <h3>候補者情報</h3>
+    <div class="setting-group">
+      <label>候補者名</label>
+      <input type="text" id="candidateName" placeholder="山田太郎">
+    </div>
+    <div class="setting-group">
+      <label>面接日</label>
+      <input type="date" id="interviewDate">
+    </div>
+    <div class="setting-group">
+      <label>面接官名</label>
+      <input type="text" id="interviewerName" placeholder="あなたの名前">
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>質問・採点基準の編集</h3>
+    <p style="font-size: 13px; color: var(--text-light); margin-bottom: 12px;">
+      質問と各スコア（1〜5点）の基準を編集できます。変更は「保存して反映」で適用されます。
+    </p>
+    <div id="questionEditor"></div>
+    <div style="margin-top: 12px; display: flex; gap: 10px;">
+      <button class="btn btn-primary btn-sm" onclick="saveQuestions()">保存して反映</button>
+      <button class="btn btn-outline btn-sm" onclick="addQuestion()">＋ 質問を追加</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>合格ライン設定</h3>
+    <div class="setting-group">
+      <label>合格点（この点数以上で合格）</label>
+      <input type="number" id="passScore" value="15" min="1" max="100" placeholder="例: 15">
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>データ管理</h3>
+    <div class="controls">
+      <button class="btn btn-outline btn-sm" onclick="saveToLocal()">設定を保存</button>
+      <button class="btn btn-outline btn-sm" onclick="loadFromLocal()">設定を読み込み</button>
+      <button class="btn btn-danger btn-sm" onclick="resetAll()">全てリセット</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== State =====
+let questions = [
+  {
+    id: 1,
+    title: "気づき・学びとその実行",
+    question: "これまでの経験で、自分なりに気づいたことや学んだことを、実際に行動に移したエピソードを教えてください。",
+    criteria: {
+      1: "事象のみ（例：大事だと学んだ）",
+      2: "事象＋感想（例：大事だと思った）",
+      3: "事象＋具体的な感想（例：ミスをして確認不足だと気づいた）",
+      4: "事象＋実行（例：自分の考えを押し付けず柔軟に対応した）",
+      5: "事象＋実行＋変化への気づき（例：ミスがゼロになった、仕組み化の意識が身についた）"
+    }
+  },
+  {
+    id: 2,
+    title: "数値目標の経験",
+    question: "数値目標を追いかけた経験はありますか？その際、目標達成のためにどんな工夫をしましたか？",
+    criteria: {
+      0: "経験なし",
+      1: "数字はあるが結果不明",
+      2: "目標と結果のみ",
+      3: "工夫があるが、行動が不明確",
+      4: "具体的な工夫（例：先輩に聞く、自分なりに行動を変える等）を行い、結果に繋げている",
+      5: "具体的な分析＋数値的な結果（例：商談数と成約率に分解して改善した）"
+    }
+  },
+  {
+    id: 3,
+    title: "アドバイスによる行動変容",
+    question: "上司や先輩からのアドバイスを受けて、自分の行動を変えた経験を教えてください。",
+    criteria: {
+      0: "特になし",
+      1: "一言レベル",
+      2: "内容＋感想",
+      3: "内容＋実行",
+      4: "内容＋実行＋成果（例：早めに取り組むようになり、転職活動も即実行した）",
+      5: "内容＋実行＋成果＋自ら取りにいく姿勢"
+    }
+  },
+  {
+    id: 4,
+    title: "精神的にきつかった経験と克服",
+    question: "精神的に辛かった経験と、それをどのように乗り越えたか教えてください。",
+    criteria: {
+      0: "被害者思考",
+      1: "他責",
+      2: "耐えただけ",
+      3: "相談などの乗り越え方がある",
+      4: "具体的な行動による克服（例：数を打つ、アプローチ数を増やす、振り返りを行う）",
+      5: "逆境からの成果（例：練習を重ねてチーム上位まで伸ばした）"
+    }
+  },
+  {
+    id: 5,
+    title: "成果が出た理由",
+    question: "これまでの仕事や活動で成果を出せた理由は何だと思いますか？",
+    criteria: {
+      0: "運",
+      1: "抽象的（とにかく頑張った）",
+      2: "強みはあるが曖昧",
+      3: "行動ベース（例：毎日ロープレした）",
+      4: "具体的な行動（例：日々の積み重ねの内容が想起できるもの）",
+      5: "再現性の言語化"
+    }
+  }
+];
+
+let scores = {};
+let answers = {};
+let currentQuestionId = null;
+let isRecording = false;
+let recognition = null;
+let timerInterval = null;
+let startTime = null;
+let transcriptData = [];
+let geminiModel = 'gemini-2.0-flash';
+
+// ===== Init =====
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('interviewDate').value = new Date().toISOString().split('T')[0];
+  loadFromLocal();
+  renderQuestionSelector();
+  renderScoreItems();
+  renderQuestionEditor();
+  initSpeechRecognition();
+});
+
+// ===== Tabs =====
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+    if (tab.dataset.tab === 'score') renderScoreItems();
+    if (tab.dataset.tab === 'result') showResult();
+  });
+});
+
+// ===== Speech Recognition =====
+function initSpeechRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    alert('お使いのブラウザは音声認識に対応していません。Google Chromeをお使いください。');
+    return;
+  }
+
+  recognition = new SpeechRecognition();
+  recognition.lang = 'ja-JP';
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 1;
+
+  recognition.onresult = (event) => {
+    let interimTranscript = '';
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const result = event.results[i];
+      if (result.isFinal) {
+        const text = result[0].transcript.trim();
+        if (text) {
+          const entry = {
+            text: text,
+            timestamp: getElapsedTime(),
+            questionId: currentQuestionId,
+            time: Date.now()
+          };
+          transcriptData.push(entry);
+
+          // Append to answers
+          if (currentQuestionId) {
+            if (!answers[currentQuestionId]) answers[currentQuestionId] = '';
+            answers[currentQuestionId] += text + ' ';
+          }
+
+          renderTranscript();
+        }
+      } else {
+        interimTranscript += result[0].transcript;
+      }
+    }
+
+    // Show interim
+    const interimEl = document.getElementById('interimText');
+    if (interimEl) {
+      interimEl.textContent = interimTranscript;
+    }
+  };
+
+  recognition.onerror = (event) => {
+    console.error('Speech recognition error:', event.error);
+    if (event.error === 'not-allowed') {
+      alert('マイクのアクセスが許可されていません。ブラウザの設定でマイクを許可してください。');
+      stopRecording();
+    } else if (event.error === 'no-speech') {
+      // Auto restart on no-speech
+    } else if (event.error !== 'aborted') {
+      // Try to restart on other errors
+      if (isRecording) {
+        setTimeout(() => {
+          try { recognition.start(); } catch(e) {}
+        }, 500);
+      }
+    }
+  };
+
+  recognition.onend = () => {
+    // Auto restart if still recording
+    if (isRecording) {
+      setTimeout(() => {
+        try { recognition.start(); } catch(e) {}
+      }, 200);
+    }
+  };
+}
+
+function startRecording() {
+  if (!recognition) {
+    initSpeechRecognition();
+    if (!recognition) return;
+  }
+
+  isRecording = true;
+  startTime = startTime || Date.now();
+  recognition.start();
+
+  document.getElementById('btnStart').disabled = true;
+  document.getElementById('btnStop').disabled = false;
+
+  const status = document.getElementById('recordingStatus');
+  status.className = 'recording-status recording';
+  status.innerHTML = '<div class="recording-dot"></div> 録音中...（マイクから音声を取得しています）';
+
+  // Start timer
+  if (!timerInterval) {
+    timerInterval = setInterval(updateTimer, 1000);
+  }
+}
+
+function stopRecording() {
+  isRecording = false;
+  if (recognition) {
+    try { recognition.stop(); } catch(e) {}
+  }
+
+  document.getElementById('btnStart').disabled = false;
+  document.getElementById('btnStop').disabled = true;
+
+  const status = document.getElementById('recordingStatus');
+  status.className = 'recording-status idle';
+  status.innerHTML = '一時停止中 — 「録音開始」で再開できます';
+}
+
+// ===== Timer =====
+function updateTimer() {
+  if (!startTime) return;
+  const elapsed = Date.now() - startTime;
+  document.getElementById('timer').textContent = formatTime(elapsed);
+}
+
+function formatTime(ms) {
+  const s = Math.floor(ms / 1000);
+  const h = String(Math.floor(s / 3600)).padStart(2, '0');
+  const m = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+  const sec = String(s % 60).padStart(2, '0');
+  return `${h}:${m}:${sec}`;
+}
+
+function getElapsedTime() {
+  if (!startTime) return '00:00';
+  const elapsed = Date.now() - startTime;
+  const s = Math.floor(elapsed / 1000);
+  const m = String(Math.floor(s / 60)).padStart(2, '0');
+  const sec = String(s % 60).padStart(2, '0');
+  return `${m}:${sec}`;
+}
+
+// ===== Transcript Rendering =====
+function renderTranscript() {
+  const area = document.getElementById('transcriptArea');
+  let html = '';
+  let lastQId = null;
+
+  transcriptData.forEach(entry => {
+    if (entry.questionId !== lastQId && entry.questionId) {
+      const q = questions.find(q => q.id === entry.questionId);
+      if (q) {
+        html += `<div class="question-marker">Q${q.id}: ${q.title}</div>`;
+      }
+      lastQId = entry.questionId;
+    }
+    html += `<span class="timestamp">[${entry.timestamp}]</span>`;
+    html += `<span class="final">${escapeHtml(entry.text)}</span><br>`;
+  });
+
+  html += '<span class="interim" id="interimText"></span>';
+  area.innerHTML = html;
+  area.scrollTop = area.scrollHeight;
+
+  // Update question buttons
+  renderQuestionSelector();
+}
+
+function clearTranscript() {
+  if (!confirm('文字起こしデータをクリアしますか？')) return;
+  transcriptData = [];
+  answers = {};
+  document.getElementById('transcriptArea').innerHTML =
+    '<p style="color: var(--text-light); font-size: 14px;">クリアしました。録音を開始してください。</p>';
+  renderQuestionSelector();
+}
+
+// ===== Question Selector =====
+function renderQuestionSelector() {
+  const container = document.getElementById('questionSelector');
+  container.innerHTML = questions.map(q => {
+    const isActive = currentQuestionId === q.id;
+    const hasAnswer = answers[q.id] && answers[q.id].trim().length > 0;
+    let cls = 'q-btn';
+    if (isActive) cls += ' active';
+    else if (hasAnswer) cls += ' has-answer';
+    return `<button class="${cls}" onclick="selectQuestion(${q.id})">Q${q.id}: ${q.title}</button>`;
+  }).join('');
+}
+
+function selectQuestion(id) {
+  if (currentQuestionId === id) {
+    currentQuestionId = null; // Toggle off
+  } else {
+    currentQuestionId = id;
+    // Add marker in transcript
+    if (isRecording) {
+      const q = questions.find(q => q.id === id);
+      // The marker will appear when next speech is recognized
+    }
+  }
+  renderQuestionSelector();
+}
+
+// ===== Score Items =====
+function renderScoreItems() {
+  const container = document.getElementById('scoreItems');
+  container.innerHTML = questions.map(q => {
+    const score = scores[q.id];
+    const answer = answers[q.id] || '';
+    const isScored = score !== undefined;
+
+    return `
+      <div class="score-item ${isScored ? 'scored' : ''}">
+        <h4>Q${q.id}: ${escapeHtml(q.title)}</h4>
+        <div class="criteria-desc">${escapeHtml(q.question)}</div>
+
+        ${answer ? `<div class="answer-preview"><strong>回答:</strong> ${escapeHtml(answer)}</div>` : '<div class="answer-preview" style="color: #f59e0b;">⚠ 回答が記録されていません（文字起こしタブで質問タグを付けてください）</div>'}
+
+        <div class="score-buttons">
+          ${(q.criteria[0] !== undefined ? [0,1,2,3,4,5] : [1,2,3,4,5]).map(s => `
+            <button class="score-btn ${score === s ? 'selected' : ''}"
+              onclick="setScore(${q.id}, ${s})"
+              title="${escapeHtml(q.criteria[s] || '')}">
+              ${s}
+            </button>
+          `).join('')}
+        </div>
+
+        <div style="font-size: 12px; color: var(--text-light); margin-bottom: 4px;">
+          ${(q.criteria[0] !== undefined ? [0,1,2,3,4,5] : [1,2,3,4,5]).map(s => `<div><strong>${s}点:</strong> ${escapeHtml(q.criteria[s] || '')}</div>`).join('')}
+        </div>
+
+        ${scores['ai_reason_' + q.id] ? `<div class="ai-reason">🤖 <strong>AI判定理由:</strong> ${escapeHtml(scores['ai_reason_' + q.id])}</div>` : ''}
+
+        <textarea class="score-comment" rows="2" placeholder="コメント（任意）"
+          id="comment-${q.id}"
+          oninput="saveComment(${q.id}, this.value)">${scores['comment_' + q.id] || ''}</textarea>
+      </div>
+    `;
+  }).join('');
+
+  updateScoredCount();
+}
+
+function setScore(qId, score) {
+  scores[qId] = score;
+  renderScoreItems();
+}
+
+function saveComment(qId, text) {
+  scores['comment_' + qId] = text;
+}
+
+function updateScoredCount() {
+  const scored = questions.filter(q => scores[q.id] !== undefined).length;
+  const el = document.getElementById('scoredCount');
+  if (el) el.textContent = `${scored} / ${questions.length} 採点済み`;
+}
+
+// ===== Results =====
+function showResult() {
+  const total = questions.reduce((sum, q) => sum + (scores[q.id] || 0), 0);
+  const maxScore = questions.length * 5;
+  const passScore = parseInt(document.getElementById('passScore').value) || 15;
+  const passed = total >= passScore;
+
+  const totalEl = document.getElementById('totalScore');
+  totalEl.className = 'total-score ' + (passed ? 'pass' : 'fail');
+  totalEl.querySelector('.score-number').textContent = `${total} / ${maxScore}`;
+
+  const badge = document.getElementById('resultBadge');
+  badge.style.display = 'inline-block';
+  badge.className = 'result-badge ' + (passed ? 'pass' : 'fail');
+  badge.textContent = passed ? '✓ 合格' : '✗ 不合格';
+
+  // Detail
+  const detail = document.getElementById('resultDetail');
+  detail.innerHTML = questions.map(q => {
+    const s = scores[q.id];
+    const comment = scores['comment_' + q.id] || '';
+    return `
+      <div style="padding: 10px 0; border-bottom: 1px solid var(--border);">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <strong>Q${q.id}: ${escapeHtml(q.title)}</strong>
+          <span style="font-size: 20px; font-weight: 700; color: ${s ? 'var(--primary)' : 'var(--text-light)'}">
+            ${s !== undefined ? s + '点' : '未採点'}
+          </span>
+        </div>
+        ${comment ? `<div style="font-size: 13px; color: var(--text-light); margin-top: 4px;">${escapeHtml(comment)}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+
+  // Switch to result tab
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelector('[data-tab="result"]').classList.add('active');
+  document.getElementById('panel-result').classList.add('active');
+}
+
+// ===== Export =====
+function exportText() {
+  const text = buildExportText();
+  navigator.clipboard.writeText(text).then(() => {
+    alert('クリップボードにコピーしました！');
+  }).catch(() => {
+    // Fallback: show in preview
+    const preview = document.getElementById('exportPreview');
+    preview.style.display = 'block';
+    preview.textContent = text;
+  });
+}
+
+function buildExportText() {
+  const name = document.getElementById('candidateName').value || '未入力';
+  const date = document.getElementById('interviewDate').value || '';
+  const interviewer = document.getElementById('interviewerName').value || '';
+  const total = questions.reduce((sum, q) => sum + (scores[q.id] || 0), 0);
+  const maxScore = questions.length * 5;
+  const passScore = parseInt(document.getElementById('passScore').value) || 15;
+  const passed = total >= passScore;
+  const memo = document.getElementById('interviewMemo').value || '';
+
+  let text = `===== 面接採点結果 =====\n`;
+  text += `候補者: ${name}\n`;
+  text += `面接日: ${date}\n`;
+  text += `面接官: ${interviewer}\n`;
+  text += `合計スコア: ${total} / ${maxScore} （${passed ? '合格' : '不合格'}）\n`;
+  text += `合格ライン: ${passScore}点\n\n`;
+
+  questions.forEach(q => {
+    const s = scores[q.id];
+    const comment = scores['comment_' + q.id] || '';
+    const answer = answers[q.id] || '';
+    text += `--- Q${q.id}: ${q.title} ---\n`;
+    text += `質問: ${q.question}\n`;
+    text += `スコア: ${s !== undefined ? s + '点' : '未採点'}\n`;
+    if (answer) text += `回答概要: ${answer.trim()}\n`;
+    if (comment) text += `コメント: ${comment}\n`;
+    text += '\n';
+  });
+
+  if (memo) text += `--- 面接メモ ---\n${memo}\n\n`;
+
+  text += `--- 文字起こし全文 ---\n`;
+  transcriptData.forEach(entry => {
+    text += `[${entry.timestamp}] ${entry.text}\n`;
+  });
+
+  return text;
+}
+
+function exportCSV() {
+  const name = document.getElementById('candidateName').value || '';
+  const date = document.getElementById('interviewDate').value || '';
+  const interviewer = document.getElementById('interviewerName').value || '';
+  const total = questions.reduce((sum, q) => sum + (scores[q.id] || 0), 0);
+  const passScore = parseInt(document.getElementById('passScore').value) || 15;
+
+  let csv = '\uFEFF'; // BOM for Excel
+  csv += '候補者,面接日,面接官,合計スコア,合格ライン,合否\n';
+  csv += `"${name}","${date}","${interviewer}",${total},${passScore},${total >= passScore ? '合格' : '不合格'}\n\n`;
+  csv += '質問番号,質問タイトル,スコア,コメント,回答\n';
+
+  questions.forEach(q => {
+    const s = scores[q.id] !== undefined ? scores[q.id] : '';
+    const comment = (scores['comment_' + q.id] || '').replace(/"/g, '""');
+    const answer = (answers[q.id] || '').replace(/"/g, '""').trim();
+    csv += `${q.id},"${q.title}",${s},"${comment}","${answer}"\n`;
+  });
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `面接結果_${name || '候補者'}_${date}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ===== Question Editor =====
+function renderQuestionEditor() {
+  const container = document.getElementById('questionEditor');
+  container.innerHTML = questions.map((q, idx) => `
+    <div class="question-edit-item">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+        <strong style="font-size: 14px;">Q${q.id}: ${escapeHtml(q.title)}</strong>
+        ${questions.length > 1 ? `<button class="btn btn-danger btn-sm" style="padding: 4px 10px; font-size: 12px;" onclick="removeQuestion(${idx})">削除</button>` : ''}
+      </div>
+      <input type="text" value="${escapeHtml(q.title)}" placeholder="タイトル"
+        onchange="questions[${idx}].title = this.value">
+      <input type="text" value="${escapeHtml(q.question)}" placeholder="質問文"
+        onchange="questions[${idx}].question = this.value">
+      <div class="criteria-rows">
+        ${(q.criteria[0] !== undefined ? [0,1,2,3,4,5] : [1,2,3,4,5]).map(s => `
+          <div class="criteria-row">
+            <span>${s}点</span>
+            <input type="text" value="${escapeHtml(q.criteria[s] || '')}"
+              onchange="questions[${idx}].criteria[${s}] = this.value">
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+function addQuestion() {
+  const maxId = questions.reduce((max, q) => Math.max(max, q.id), 0);
+  questions.push({
+    id: maxId + 1,
+    title: "新しい質問",
+    question: "",
+    criteria: { 0: "", 1: "", 2: "", 3: "", 4: "", 5: "" }
+  });
+  renderQuestionEditor();
+}
+
+function removeQuestion(idx) {
+  if (!confirm('この質問を削除しますか？')) return;
+  questions.splice(idx, 1);
+  renderQuestionEditor();
+}
+
+function saveQuestions() {
+  renderQuestionSelector();
+  renderScoreItems();
+  renderQuestionEditor();
+  saveToLocal();
+  alert('保存しました！');
+}
+
+// ===== Gemini Web Integration (Copy & Paste) =====
+function buildGeminiWebPrompt() {
+  const fullText = transcriptData.map(e => e.text).join(' ');
+
+  // Build per-question answers or use full text
+  let answerSection = '';
+  const hasTaggedAnswers = questions.some(q => answers[q.id]?.trim());
+
+  if (hasTaggedAnswers) {
+    questions.forEach(q => {
+      const ans = answers[q.id]?.trim() || '（記録なし）';
+      answerSection += `${q.id}の回答：${ans}\n\n`;
+    });
+  } else if (fullText.trim()) {
+    answerSection += `以下は面接の文字起こし全文です。各質問に該当する部分を判断して採点してください：\n\n${fullText}\n`;
+  } else {
+    return null; // No data
+  }
+
+  const prompt = `採用判定プロンプト（精度調整版）
+あなたは、電話営業職の採用選考を行う熟練の採用面接官です。
+提示する「採用基準」に基づき、応募者の回答を厳密に採点し、合格（15点以上）か不合格（14点以下）かを判定してください。
+
+【採点方針：重要】
+「具体的」の定義を以下のように定めます。
+単に「頑張った」ではなく、「誰に聞いたか」「何を増やしたか」など、行動の内容が特定できるものは「具体的」とみなし、高評価（4点以上）の対象としてください。
+
+【採点基準表】
+${questions.map(q => {
+  let criteriaText = `${q.id}『${q.title}』\n`;
+  const keys = Object.keys(q.criteria).map(Number).sort((a, b) => a - b);
+  keys.forEach(k => {
+    criteriaText += `${k}点：${q.criteria[k]}\n`;
+  });
+  return criteriaText;
+}).join('\n')}
+
+【出力形式】
+以下のフォーマットで出力してください：
+${questions.map(q => `${q.id}. ${q.title}：○点\n理由：（1〜2文で）`).join('\n')}
+
+合計：○○点 / 25点
+判定：合格 or 不合格（15点以上で合格）
+
+【評価対象の回答】
+${answerSection}`;
+
+  return prompt;
+}
+
+function copyGeminiPrompt() {
+  const prompt = buildGeminiWebPrompt();
+  if (!prompt) {
+    alert('文字起こしデータがありません。先に面接を録音してください。');
+    return;
+  }
+
+  navigator.clipboard.writeText(prompt).then(() => {
+    alert('採点プロンプトをコピーしました！\n\nGemini（gemini.google.com）を開いて貼り付けてください。');
+  }).catch(() => {
+    // Fallback: show in a textarea for manual copy
+    const ta = document.createElement('textarea');
+    ta.value = prompt;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    alert('採点プロンプトをコピーしました！');
+  });
+}
+
+function openGemini() {
+  window.open('https://gemini.google.com/app', '_blank');
+}
+
+function parseGeminiResult() {
+  const input = document.getElementById('geminiResultInput').value.trim();
+  const msgEl = document.getElementById('parseResultMsg');
+
+  if (!input) {
+    msgEl.innerHTML = '<span style="color: var(--danger);">❌ Geminiの結果を貼り付けてください</span>';
+    return;
+  }
+
+  let matchCount = 0;
+
+  // Parse patterns like:
+  // ① 4点  /  1. 気づき：4点  /  ①『気づき』4点  /  1. 4点
+  // Also handle: ① 気づき・学びとその実行：4点
+  questions.forEach(q => {
+    // Multiple regex patterns to match various formats
+    const patterns = [
+      // ①4点 or ① 4点 or ①：4点
+      new RegExp(`[${q.id}①②③④⑤]\\s*[.、：:．]?\\s*[^\\n]*?(\\d)\\s*点`, 'i'),
+      // 1. title：4点
+      new RegExp(`${q.id}[.．)）]\\s*[^\\n]*?(\\d)\\s*点`),
+      // Just look for the question number followed by a score
+      new RegExp(`[${q.id}]\\s*[^\\n]{0,50}?(\\d)\\s*点`),
+    ];
+
+    // Map circled numbers
+    const circledNums = ['', '①', '②', '③', '④', '⑤'];
+    if (circledNums[q.id]) {
+      patterns.unshift(new RegExp(`${circledNums[q.id]}[^\\n]*?(\\d)\\s*点`));
+    }
+
+    for (const pattern of patterns) {
+      const match = input.match(pattern);
+      if (match) {
+        const score = parseInt(match[1]);
+        if (score >= 0 && score <= 5) {
+          scores[q.id] = score;
+          matchCount++;
+
+          // Try to extract reason
+          const afterScore = input.substring(input.indexOf(match[0]) + match[0].length);
+          const reasonMatch = afterScore.match(/(?:理由[：:]?\s*|[-—]\s*)([\s\S]*?)(?=\n\s*[①②③④⑤\d]|\n\s*合計|\n\s*判定|\n\s*$)/);
+          if (reasonMatch) {
+            scores['ai_reason_' + q.id] = reasonMatch[1].trim().split('\n')[0];
+          }
+          break;
+        }
+      }
+    }
+  });
+
+  if (matchCount > 0) {
+    renderScoreItems();
+    msgEl.innerHTML = `<span style="color: var(--success);">✅ ${matchCount}問の採点を反映しました！ 下のスコアを確認してください。</span>`;
+  } else {
+    msgEl.innerHTML = `<span style="color: var(--danger);">❌ 採点結果を読み取れませんでした。Geminiの回答をそのまま全文コピーして貼り付けてください。</span>`;
+  }
+}
+
+// ===== AI Auto Scoring (Gemini API) =====
+function getApiKey() {
+  return document.getElementById('geminiApiKey').value.trim();
+}
+
+function toggleApiKeyVisibility() {
+  const input = document.getElementById('geminiApiKey');
+  input.type = input.type === 'password' ? 'text' : 'password';
+}
+
+async function testApiKey() {
+  const key = getApiKey();
+  const resultEl = document.getElementById('apiTestResult');
+  if (!key) {
+    resultEl.innerHTML = '<span style="color: var(--danger);">❌ APIキーを入力してください</span>';
+    return;
+  }
+  resultEl.innerHTML = '<span style="color: var(--text-light);">⏳ テスト中...</span>';
+  try {
+    // Try multiple models in order
+    const models = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-pro'];
+    let success = false;
+    let lastError = '';
+    for (const model of models) {
+      resultEl.innerHTML = `<span style="color: var(--text-light);">⏳ ${model} をテスト中...</span>`;
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: 'こんにちは。「接続成功」とだけ返してください。' }] }]
+          })
+        });
+        if (res.ok) {
+          geminiModel = model;
+          resultEl.innerHTML = `<span style="color: var(--success);">✅ 接続成功！（モデル: ${model}）</span>`;
+          saveToLocal();
+          success = true;
+          break;
+        } else {
+          const err = await res.json();
+          lastError = err.error?.message || res.statusText;
+        }
+      } catch(e) {
+        lastError = e.message;
+      }
+    }
+    if (!success) {
+      resultEl.innerHTML = `<span style="color: var(--danger);">❌ 全モデルで失敗: ${lastError}<br>→ 新しいAPIキーを作り直してみてください。</span>`;
+    }
+  } catch(e) {
+    resultEl.innerHTML = `<span style="color: var(--danger);">❌ 接続失敗: ${e.message}</span>`;
+  }
+}
+
+async function callGemini(prompt) {
+  const key = getApiKey();
+  if (!key) throw new Error('APIキーが設定されていません。設定タブでGemini APIキーを入力してください。');
+
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${key}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.2,
+        responseMimeType: 'application/json'
+      }
+    })
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error?.message || 'API呼び出しに失敗しました');
+  }
+
+  const data = await res.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('AIからの応答が空です');
+  return JSON.parse(text);
+}
+
+function buildScoringPrompt(questionList, answerMap) {
+  let prompt = `あなたは採用面接の採点官です。以下の面接回答を採点基準に基づいて厳密に採点してください。
+
+## 採点ルール
+- 各質問を1〜5点で採点してください
+- 採点基準の記述に最も近いスコアを選んでください
+- 回答が記録されていない質問は1点としてください
+- 必ず理由も記載してください（1〜2文で簡潔に）
+
+## 出力形式（JSON）
+以下の形式で返してください:
+[
+  {"id": 1, "score": 3, "reason": "理由をここに"},
+  {"id": 2, "score": 4, "reason": "理由をここに"}
+]
+
+## 質問と採点基準\n`;
+
+  questionList.forEach(q => {
+    prompt += `\n### Q${q.id}: ${q.title}\n`;
+    prompt += `質問: ${q.question}\n`;
+    prompt += `採点基準:\n`;
+    const startScore = q.criteria[0] !== undefined ? 0 : 1;
+    for (let s = startScore; s <= 5; s++) {
+      if (q.criteria[s]) prompt += `  ${s}点: ${q.criteria[s]}\n`;
+    }
+    const answer = answerMap[q.id]?.trim();
+    prompt += `候補者の回答: ${answer ? answer : '（回答の記録なし）'}\n`;
+  });
+
+  return prompt;
+}
+
+async function aiAutoScore() {
+  const key = getApiKey();
+  if (!key) {
+    alert('設定タブでGemini APIキーを入力してください。');
+    return;
+  }
+
+  // Check if there are any answers
+  const hasAnswers = questions.some(q => answers[q.id]?.trim());
+  if (!hasAnswers) {
+    alert('回答が記録されていません。\n\n文字起こしタブで質問ボタン（Q1, Q2...）をクリックしてから録音すると、回答が各質問に紐づけられます。\n\nまたは「全文から自動判定」ボタンをお試しください。');
+    return;
+  }
+
+  await runAiScoring(answers);
+}
+
+async function aiAutoScoreAll() {
+  const key = getApiKey();
+  if (!key) {
+    alert('設定タブでGemini APIキーを入力してください。');
+    return;
+  }
+
+  // Use full transcript even if not tagged
+  const fullText = transcriptData.map(e => e.text).join(' ');
+  if (!fullText.trim()) {
+    alert('文字起こしデータがありません。先に面接を録音してください。');
+    return;
+  }
+
+  // Show progress
+  const progress = document.getElementById('aiProgress');
+  const fill = document.getElementById('aiProgressFill');
+  const status = document.getElementById('aiStatus');
+  progress.classList.add('active');
+  fill.style.width = '20%';
+  status.textContent = 'AIが文字起こし全文を分析中...';
+
+  try {
+    // First, ask AI to split the transcript into per-question answers
+    const splitPrompt = `以下は面接の文字起こし全文です。この中から、各質問に対する候補者の回答部分を抽出してください。
+
+## 質問一覧
+${questions.map(q => `Q${q.id}: ${q.question}`).join('\n')}
+
+## 文字起こし全文
+${fullText}
+
+## 出力形式（JSON）
+各質問IDに対応する回答テキストを抽出して返してください。該当する回答がない場合は空文字にしてください:
+{${questions.map(q => `"${q.id}": "抽出した回答"`).join(', ')}}`;
+
+    fill.style.width = '40%';
+    status.textContent = 'AIが質問ごとの回答を分類中...';
+
+    const splitResult = await callGemini(splitPrompt);
+
+    // Map results to answers
+    const extractedAnswers = {};
+    questions.forEach(q => {
+      extractedAnswers[q.id] = splitResult[String(q.id)] || splitResult[q.id] || '';
+    });
+
+    fill.style.width = '60%';
+    status.textContent = '回答の分類完了。採点を開始...';
+
+    await runAiScoring(extractedAnswers);
+
+  } catch(e) {
+    progress.classList.remove('active');
+    alert('AI自動判定に失敗しました: ' + e.message);
+  }
+}
+
+async function runAiScoring(answerMap) {
+  const progress = document.getElementById('aiProgress');
+  const fill = document.getElementById('aiProgressFill');
+  const status = document.getElementById('aiStatus');
+  const btnScore = document.getElementById('btnAiScore');
+  const btnScoreAll = document.getElementById('btnAiScoreAll');
+
+  progress.classList.add('active');
+  fill.style.width = '30%';
+  status.textContent = 'AIが回答を分析中...';
+  btnScore.disabled = true;
+  btnScoreAll.disabled = true;
+
+  try {
+    fill.style.width = '50%';
+    status.textContent = '採点基準と照合中...';
+
+    const prompt = buildScoringPrompt(questions, answerMap);
+    const result = await callGemini(prompt);
+
+    fill.style.width = '80%';
+    status.textContent = '採点結果を反映中...';
+
+    // Apply scores
+    if (Array.isArray(result)) {
+      result.forEach(item => {
+        const q = questions.find(q => q.id === item.id);
+        if (q && item.score >= 1 && item.score <= 5) {
+          scores[q.id] = item.score;
+          if (item.reason) {
+            scores['ai_reason_' + q.id] = item.reason;
+          }
+        }
+      });
+    }
+
+    fill.style.width = '100%';
+    status.textContent = '✅ AI採点完了！ 結果を確認して、必要に応じて修正してください。';
+
+    renderScoreItems();
+
+    // Fade out after 3 seconds
+    setTimeout(() => {
+      status.textContent = '✅ 採点済み — スコアは手動で修正できます';
+    }, 3000);
+
+  } catch(e) {
+    fill.style.width = '0%';
+    status.textContent = `❌ エラー: ${e.message}`;
+  } finally {
+    btnScore.disabled = false;
+    btnScoreAll.disabled = false;
+  }
+}
+
+// ===== LocalStorage =====
+function saveToLocal() {
+  const data = {
+    questions,
+    scores,
+    candidateName: document.getElementById('candidateName').value,
+    interviewDate: document.getElementById('interviewDate').value,
+    interviewerName: document.getElementById('interviewerName').value,
+    passScore: document.getElementById('passScore').value,
+    geminiApiKey: document.getElementById('geminiApiKey').value,
+    geminiModel: geminiModel
+  };
+  localStorage.setItem('interview-tool-settings', JSON.stringify(data));
+}
+
+function loadFromLocal() {
+  try {
+    const data = JSON.parse(localStorage.getItem('interview-tool-settings'));
+    if (data) {
+      if (data.questions && data.questions.length) questions = data.questions;
+      if (data.candidateName) document.getElementById('candidateName').value = data.candidateName;
+      if (data.interviewDate) document.getElementById('interviewDate').value = data.interviewDate;
+      if (data.interviewerName) document.getElementById('interviewerName').value = data.interviewerName;
+      if (data.passScore) document.getElementById('passScore').value = data.passScore;
+      if (data.geminiApiKey) document.getElementById('geminiApiKey').value = data.geminiApiKey;
+      if (data.geminiModel) geminiModel = data.geminiModel;
+    }
+  } catch(e) {}
+}
+
+function resetAll() {
+  if (!confirm('すべての設定とデータをリセットしますか？')) return;
+  localStorage.removeItem('interview-tool-settings');
+  location.reload();
+}
+
+// ===== Utility =====
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+</script>
+</body>
+</html>
