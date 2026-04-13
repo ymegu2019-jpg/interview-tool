@@ -851,13 +851,24 @@ function createRecognition() {
     if (event.error === 'not-allowed') {
       alert('マイクのアクセスが許可されていません。\nブラウザのアドレスバー左の鍵アイコン→マイクを「許可」に変更してください。');
       forceStopRecording();
+    } else if (event.error === 'aborted') {
+      // Don't restart on abort - it's intentional
+    } else {
+      // Immediately restart on any other error
+      if (isRecording) {
+        flashReconnect();
+        setTimeout(() => safeStartRecognition(), 200);
+      }
     }
-    // All other errors: watchdog will handle restart
   };
 
   rec.onend = () => {
     recognitionRunning = false;
-    // Watchdog will handle restart - don't restart here to avoid conflicts
+    // Restart IMMEDIATELY - don't wait for watchdog
+    if (isRecording) {
+      flashReconnect();
+      safeStartRecognition();
+    }
   };
 
   return rec;
@@ -866,7 +877,7 @@ function createRecognition() {
 function safeStartRecognition() {
   // Destroy old instance and create fresh one
   if (recognition) {
-    try { recognition.abort(); } catch(e) {}
+    try { recognition.onend = null; recognition.onerror = null; recognition.abort(); } catch(e) {}
     recognition = null;
   }
 
@@ -877,13 +888,20 @@ function safeStartRecognition() {
     recognition.start();
     recognitionRunning = true;
     sessionRestarts++;
-    updateRecordingStatus('recording', '<div class="recording-dot"></div> 録音中...' + (sessionRestarts > 1 ? ` （再接続 #${sessionRestarts - 1}）` : ''));
+    updateRecordingStatus('recording', '<div class="recording-dot"></div> 録音中...' + (sessionRestarts > 1 ? ` （自動再接続 ${sessionRestarts - 1}回）` : ''));
     return true;
   } catch(e) {
     console.warn('Start failed:', e);
     recognitionRunning = false;
     return false;
   }
+}
+
+function flashReconnect() {
+  const status = document.getElementById('recordingStatus');
+  status.style.transition = 'background 0.2s';
+  status.style.background = '#fef3c7';
+  setTimeout(() => { status.style.background = ''; }, 400);
 }
 
 // Watchdog: checks every 2 seconds if recognition is alive
@@ -896,13 +914,12 @@ function startWatchdog() {
       updateRecordingStatus('warning', '⚠ 音声認識が停止 — 自動再接続中...');
       safeStartRecognition();
     } else {
-      // Check for long silence
       const silence = Date.now() - lastSpeechTime;
       if (silence > 60000) {
         updateRecordingStatus('recording', '<div class="recording-dot"></div> 録音中...（長時間無音 - マイク接続OK）');
       }
     }
-  }, 2000);
+  }, 1000);
 }
 
 function stopWatchdog() {
