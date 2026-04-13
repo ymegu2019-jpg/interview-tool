@@ -786,7 +786,6 @@ document.addEventListener('DOMContentLoaded', () => {
   renderQuestionSelector();
   renderScoreItems();
   renderQuestionEditor();
-  initSpeechRecognition();
 });
 
 // ===== Tabs =====
@@ -801,21 +800,27 @@ document.querySelectorAll('.tab').forEach(tab => {
   });
 });
 
-// ===== Speech Recognition =====
-function initSpeechRecognition() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
+// ===== Speech Recognition (Robust Version) =====
+let lastSpeechTime = Date.now();
+let watchdogInterval = null;
+let recognitionRunning = false;
+let sessionRestarts = 0;
+
+// Create a fresh SpeechRecognition instance every time
+function createRecognition() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
     alert('お使いのブラウザは音声認識に対応していません。Google Chromeをお使いください。');
-    return;
+    return null;
   }
 
-  recognition = new SpeechRecognition();
-  recognition.lang = 'ja-JP';
-  recognition.continuous = true;
-  recognition.interimResults = true;
-  recognition.maxAlternatives = 1;
+  const rec = new SR();
+  rec.lang = 'ja-JP';
+  rec.continuous = true;
+  rec.interimResults = true;
+  rec.maxAlternatives = 1;
 
-  recognition.onresult = (event) => {
+  rec.onresult = (event) => {
     let interimTranscript = '';
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const result = event.results[i];
@@ -830,147 +835,146 @@ function initSpeechRecognition() {
             time: Date.now()
           };
           transcriptData.push(entry);
-
-          // Append to answers
-          if (currentQuestionId) {
-            if (!answers[currentQuestionId]) answers[currentQuestionId] = '';
-            answers[currentQuestionId] += text + ' ';
-          }
-
           renderTranscript();
         }
       } else {
         interimTranscript += result[0].transcript;
       }
     }
-
-    // Show interim
     const interimEl = document.getElementById('interimText');
-    if (interimEl) {
-      interimEl.textContent = interimTranscript;
-    }
+    if (interimEl) interimEl.textContent = interimTranscript;
   };
 
-  recognition.onerror = (event) => {
-    console.error('Speech recognition error:', event.error);
+  rec.onerror = (event) => {
+    console.warn('Speech error:', event.error);
+    recognitionRunning = false;
     if (event.error === 'not-allowed') {
-      alert('マイクのアクセスが許可されていません。ブラウザの設定でマイクを許可してください。');
-      stopRecording();
-    } else if (event.error === 'no-speech') {
-      // Show warning but auto restart
-      showRecordingWarning('無音を検知...自動で再開します');
-      restartRecognition(300);
-    } else if (event.error === 'network') {
-      showRecordingWarning('ネットワークエラー...再接続中');
-      restartRecognition(1000);
-    } else if (event.error === 'audio-capture') {
-      showRecordingWarning('マイクエラー...再接続中');
-      restartRecognition(1000);
-    } else if (event.error !== 'aborted') {
-      showRecordingWarning('音声認識エラー...再接続中');
-      restartRecognition(500);
+      alert('マイクのアクセスが許可されていません。\nブラウザのアドレスバー左の鍵アイコン→マイクを「許可」に変更してください。');
+      forceStopRecording();
     }
+    // All other errors: watchdog will handle restart
   };
 
-  recognition.onend = () => {
-    // Auto restart if still recording
-    if (isRecording) {
-      restartRecognition(100);
-    }
+  rec.onend = () => {
+    recognitionRunning = false;
+    // Watchdog will handle restart - don't restart here to avoid conflicts
   };
+
+  return rec;
 }
 
-let restartAttempts = 0;
-let lastSpeechTime = Date.now();
-let healthCheckInterval = null;
+function safeStartRecognition() {
+  // Destroy old instance and create fresh one
+  if (recognition) {
+    try { recognition.abort(); } catch(e) {}
+    recognition = null;
+  }
 
-function restartRecognition(delay) {
-  if (!isRecording) return;
-  restartAttempts++;
-  setTimeout(() => {
-    try {
-      recognition.start();
-      restartAttempts = 0;
-      // Restore normal recording status after successful restart
-      setTimeout(() => {
-        if (isRecording) {
-          const status = document.getElementById('recordingStatus');
-          status.className = 'recording-status recording';
-          status.innerHTML = '<div class="recording-dot"></div> 録音中...';
-        }
-      }, 1000);
-    } catch(e) {
-      if (restartAttempts < 10) {
-        restartRecognition(Math.min(delay * 2, 3000));
-      } else {
-        showRecordingWarning('再接続に失敗しました。「録音開始」を押し直してください');
-        stopRecording();
-      }
-    }
-  }, delay);
+  recognition = createRecognition();
+  if (!recognition) return false;
+
+  try {
+    recognition.start();
+    recognitionRunning = true;
+    sessionRestarts++;
+    updateRecordingStatus('recording', '<div class="recording-dot"></div> 録音中...' + (sessionRestarts > 1 ? ` （再接続 #${sessionRestarts - 1}）` : ''));
+    return true;
+  } catch(e) {
+    console.warn('Start failed:', e);
+    recognitionRunning = false;
+    return false;
+  }
 }
 
-function showRecordingWarning(msg) {
-  const status = document.getElementById('recordingStatus');
-  status.className = 'recording-status warning';
-  status.innerHTML = '⚠ ' + msg;
-}
-
-function startHealthCheck() {
-  if (healthCheckInterval) clearInterval(healthCheckInterval);
-  healthCheckInterval = setInterval(() => {
+// Watchdog: checks every 2 seconds if recognition is alive
+function startWatchdog() {
+  stopWatchdog();
+  watchdogInterval = setInterval(() => {
     if (!isRecording) return;
-    const elapsed = Date.now() - lastSpeechTime;
-    // If no speech for 30 seconds, show a subtle warning
-    if (elapsed > 30000) {
-      const status = document.getElementById('recordingStatus');
-      if (status.className.includes('recording')) {
-        status.innerHTML = '<div class="recording-dot"></div> 録音中...（音声待機中 - マイクは接続されています）';
+
+    if (!recognitionRunning) {
+      updateRecordingStatus('warning', '⚠ 音声認識が停止 — 自動再接続中...');
+      safeStartRecognition();
+    } else {
+      // Check for long silence
+      const silence = Date.now() - lastSpeechTime;
+      if (silence > 60000) {
+        updateRecordingStatus('recording', '<div class="recording-dot"></div> 録音中...（長時間無音 - マイク接続OK）');
       }
     }
-  }, 10000);
+  }, 2000);
+}
+
+function stopWatchdog() {
+  if (watchdogInterval) {
+    clearInterval(watchdogInterval);
+    watchdogInterval = null;
+  }
+}
+
+function updateRecordingStatus(type, html) {
+  const status = document.getElementById('recordingStatus');
+  status.className = 'recording-status ' + type;
+  status.innerHTML = html;
+}
+
+// Keep page alive: prevent Chrome from throttling background tab
+function keepAlive() {
+  if (typeof window._keepAliveInterval !== 'undefined') return;
+  window._keepAliveInterval = setInterval(() => {
+    if (isRecording) {
+      // Tiny fetch to keep the page active
+      fetch('data:text/plain,keepalive').catch(() => {});
+    }
+  }, 15000);
 }
 
 function startRecording() {
-  if (!recognition) {
-    initSpeechRecognition();
-    if (!recognition) return;
-  }
-
   isRecording = true;
   startTime = startTime || Date.now();
   lastSpeechTime = Date.now();
-  restartAttempts = 0;
-  recognition.start();
+  sessionRestarts = 0;
 
+  const success = safeStartRecognition();
+  if (!success) {
+    isRecording = false;
+    alert('音声認識を開始できませんでした。ページを再読み込みしてお試しください。');
+    return;
+  }
+
+  // Always keep buttons responsive
   document.getElementById('btnStart').disabled = true;
   document.getElementById('btnStop').disabled = false;
-
-  const status = document.getElementById('recordingStatus');
-  status.className = 'recording-status recording';
-  status.innerHTML = '<div class="recording-dot"></div> 録音中...';
 
   // Start timer
   if (!timerInterval) {
     timerInterval = setInterval(updateTimer, 1000);
   }
-  startHealthCheck();
+
+  startWatchdog();
+  keepAlive();
+  updateCurrentQuestionBanner();
 }
 
 function stopRecording() {
+  forceStopRecording();
+  updateRecordingStatus('idle', '一時停止中 — 「録音開始」で再開できます');
+}
+
+function forceStopRecording() {
   isRecording = false;
-  restartAttempts = 0;
-  if (healthCheckInterval) { clearInterval(healthCheckInterval); healthCheckInterval = null; }
+  recognitionRunning = false;
+  stopWatchdog();
+
   if (recognition) {
-    try { recognition.stop(); } catch(e) {}
+    try { recognition.abort(); } catch(e) {}
+    recognition = null;
   }
 
+  // ALWAYS reset buttons no matter what
   document.getElementById('btnStart').disabled = false;
   document.getElementById('btnStop').disabled = true;
-
-  const status = document.getElementById('recordingStatus');
-  status.className = 'recording-status idle';
-  status.innerHTML = '一時停止中 — 「録音開始」で再開できます';
+  updateRecordingStatus('idle', '停止中');
 }
 
 // ===== Timer =====
