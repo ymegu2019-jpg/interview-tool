@@ -1410,6 +1410,8 @@ function saveQuestions() {
 }
 
 // ===== Transcript Merge (PC + Mobile) =====
+const circledNums = ['', '①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩'];
+
 function copyMergePrompt() {
   const pcText = transcriptData.map(e => e.text).join(' ');
   const mobileText = document.getElementById('mobileTranscript').value.trim();
@@ -1419,22 +1421,24 @@ function copyMergePrompt() {
     return;
   }
 
-  const prompt = `以下は同じ面接を2つの異なるデバイスで文字起こししたものです。
+  const prompt = `以下は同じ採用面接を2つの異なるデバイスで文字起こししたものです。
 両方を照合して、最も正確な文字起こしを作成してください。
 
-【ルール】
+【重要ルール】
+- 面接官（質問する側）の発言は全て除外し、候補者（回答する側）の発言のみ残してください
+- 質問文に近い内容の発言は面接官の発言なので除外してください
 - 両方に共通する部分はそのまま採用
 - 片方にしかない部分は、文脈から判断して採用/不採用を決定
 - 明らかな誤認識（音が似ているが意味が通らない言葉）は正しい方を採用
 - 質問と回答の区切りが分かる場合は、以下の質問番号で区切ってください
 - 文章は自然な日本語になるよう整えてください
 
-【質問一覧】
+【質問一覧（面接官が聞く質問）】
 ${questions.map(q => `${q.id}. ${q.title}: ${q.question}`).join('\n')}
 
 【出力形式】
 以下のフォーマットで出力してください：
-${questions.map(q => `①の回答：（照合した回答文）`).join('\n')}
+${questions.map(q => `${circledNums[q.id]}の回答：（候補者の回答のみ）`).join('\n')}
 ※質問に該当する回答が見つからない場合は「（該当なし）」としてください
 
 【PC（Webツール）の文字起こし】
@@ -1465,8 +1469,7 @@ function applyMergedResult() {
     return;
   }
 
-  // Parse the merged result - look for patterns like ①の回答：... or 1. ... or ①...
-  const circledNums = ['', '①', '②', '③', '④', '⑤'];
+  // Parse the merged result
   let matchCount = 0;
 
   questions.forEach(q => {
@@ -1605,7 +1608,6 @@ function parseGeminiResult() {
     ];
 
     // Map circled numbers
-    const circledNums = ['', '①', '②', '③', '④', '⑤'];
     if (circledNums[q.id]) {
       patterns.unshift(new RegExp(`${circledNums[q.id]}[^\\n]*?(\\d)\\s*点`));
     }
