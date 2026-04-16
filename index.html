@@ -480,6 +480,7 @@
 <!-- Tabs -->
 <div class="tabs">
   <div class="tab active" data-tab="transcribe">文字起こし</div>
+  <div class="tab" data-tab="merge">照合</div>
   <div class="tab" data-tab="score">採点</div>
   <div class="tab" data-tab="result">結果</div>
   <div class="tab" data-tab="settings">設定</div>
@@ -525,6 +526,54 @@
       <li>面接終了後「採点」タブで各回答を採点します</li>
       <li>「結果」タブで合否と詳細を確認・エクスポートできます</li>
     </ol>
+  </div>
+</div>
+
+<!-- Panel: 照合 -->
+<div class="panel" id="panel-merge">
+  <div class="card ai-scoring-card">
+    <h3 style="margin-bottom: 8px;">📱 文字起こし照合</h3>
+    <p style="font-size: 13px; color: var(--text-light); margin-bottom: 12px;">
+      PC（このツール）と携帯アプリの文字起こしを照合して、正確な文章を作成します。
+    </p>
+
+    <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
+      <span style="background: var(--primary); color: white; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0;">1</span>
+      <span style="font-size: 14px; font-weight: 600;">携帯アプリの文字起こしを貼り付け</span>
+    </div>
+    <textarea id="mobileTranscript" rows="8" style="width: 100%; padding: 10px; border: 2px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; resize: vertical;" placeholder="携帯の文字起こしアプリからコピーした全文をここに貼り付けてください..."></textarea>
+
+    <div style="display: flex; gap: 8px; align-items: center; margin: 16px 0 8px;">
+      <span style="background: var(--primary); color: white; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0;">2</span>
+      <span style="font-size: 14px; font-weight: 600;">照合プロンプトをコピー → Geminiで照合</span>
+    </div>
+    <div class="controls" style="margin-bottom: 12px;">
+      <button class="btn btn-primary" onclick="copyMergePrompt()">
+        📋 照合プロンプトをコピー
+      </button>
+      <button class="btn btn-outline btn-sm" onclick="openGemini()">
+        Geminiを開く ↗
+      </button>
+    </div>
+
+    <div style="display: flex; gap: 8px; align-items: center; margin: 16px 0 8px;">
+      <span style="background: var(--primary); color: white; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0;">3</span>
+      <span style="font-size: 14px; font-weight: 600;">Geminiの照合結果を貼り付け → 反映</span>
+    </div>
+    <textarea id="mergedResult" rows="8" style="width: 100%; padding: 10px; border: 2px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; resize: vertical;" placeholder="Geminiの照合結果をここに貼り付けてください..."></textarea>
+    <div class="controls" style="margin-top: 8px;">
+      <button class="btn btn-success" onclick="applyMergedResult()">
+        ⚡ 照合結果を採点に反映
+      </button>
+    </div>
+    <div id="mergeResultMsg" style="margin-top: 8px; font-size: 13px;"></div>
+  </div>
+
+  <div class="card">
+    <h3>PCの文字起こし（このツール）</h3>
+    <div id="pcTranscriptPreview" style="background: #f8fafc; border-radius: 6px; padding: 10px; font-size: 13px; color: var(--text-light); max-height: 200px; overflow-y: auto;">
+      文字起こしデータがありません。先に面接を録音してください。
+    </div>
   </div>
 </div>
 
@@ -795,6 +844,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
     tab.classList.add('active');
     document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+    if (tab.dataset.tab === 'merge') updatePcTranscriptPreview();
     if (tab.dataset.tab === 'score') renderScoreItems();
     if (tab.dataset.tab === 'result') showResult();
   });
@@ -1357,6 +1407,101 @@ function saveQuestions() {
   renderQuestionEditor();
   saveToLocal();
   alert('保存しました！');
+}
+
+// ===== Transcript Merge (PC + Mobile) =====
+function copyMergePrompt() {
+  const pcText = transcriptData.map(e => e.text).join(' ');
+  const mobileText = document.getElementById('mobileTranscript').value.trim();
+
+  if (!pcText && !mobileText) {
+    alert('PCまたは携帯の文字起こしデータが必要です。');
+    return;
+  }
+
+  const prompt = `以下は同じ面接を2つの異なるデバイスで文字起こししたものです。
+両方を照合して、最も正確な文字起こしを作成してください。
+
+【ルール】
+- 両方に共通する部分はそのまま採用
+- 片方にしかない部分は、文脈から判断して採用/不採用を決定
+- 明らかな誤認識（音が似ているが意味が通らない言葉）は正しい方を採用
+- 質問と回答の区切りが分かる場合は、以下の質問番号で区切ってください
+- 文章は自然な日本語になるよう整えてください
+
+【質問一覧】
+${questions.map(q => `${q.id}. ${q.title}: ${q.question}`).join('\n')}
+
+【出力形式】
+以下のフォーマットで出力してください：
+${questions.map(q => `①の回答：（照合した回答文）`).join('\n')}
+※質問に該当する回答が見つからない場合は「（該当なし）」としてください
+
+【PC（Webツール）の文字起こし】
+${pcText || '（データなし）'}
+
+【携帯アプリの文字起こし】
+${mobileText || '（データなし）'}`;
+
+  navigator.clipboard.writeText(prompt).then(() => {
+    alert('照合プロンプトをコピーしました！\n\nGemini（gemini.google.com）に貼り付けてください。');
+  }).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = prompt;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    alert('照合プロンプトをコピーしました！');
+  });
+}
+
+function applyMergedResult() {
+  const result = document.getElementById('mergedResult').value.trim();
+  const msgEl = document.getElementById('mergeResultMsg');
+
+  if (!result) {
+    msgEl.innerHTML = '<span style="color: var(--danger);">❌ Geminiの照合結果を貼り付けてください</span>';
+    return;
+  }
+
+  // Parse the merged result - look for patterns like ①の回答：... or 1. ... or ①...
+  const circledNums = ['', '①', '②', '③', '④', '⑤'];
+  let matchCount = 0;
+
+  questions.forEach(q => {
+    const patterns = [
+      new RegExp(`${circledNums[q.id] || q.id}[のノ]?回答[：:]\\s*([\\s\\S]*?)(?=(?:${circledNums[q.id + 1] || (q.id + 1)}[のノ]?回答|$))`, 'i'),
+      new RegExp(`${q.id}[.．)）]\\s*[^\\n]*?[：:]\\s*([\\s\\S]*?)(?=(?:${q.id + 1}[.．)）]|$))`, 'i'),
+      new RegExp(`Q?${q.id}[.．:：\\s].*?[：:]\\s*([\\s\\S]*?)(?=(?:Q?${q.id + 1}[.．:：\\s]|$))`, 'i'),
+    ];
+
+    for (const pattern of patterns) {
+      const match = result.match(pattern);
+      if (match && match[1]) {
+        const answerText = match[1].trim();
+        if (answerText && answerText !== '（該当なし）') {
+          answers[q.id] = answerText;
+          matchCount++;
+          break;
+        }
+      }
+    }
+  });
+
+  if (matchCount > 0) {
+    msgEl.innerHTML = `<span style="color: var(--success);">✅ ${matchCount}問の回答を反映しました！ 「採点」タブで確認してください。</span>`;
+  } else {
+    // If parsing failed, put everything as a general answer
+    msgEl.innerHTML = `<span style="color: var(--warning);">⚠ 自動分割できませんでした。Geminiの結果を確認して、各質問ごとに「①の回答：」の形式になっているか確認してください。</span>`;
+  }
+}
+
+function updatePcTranscriptPreview() {
+  const preview = document.getElementById('pcTranscriptPreview');
+  if (!preview) return;
+  const pcText = transcriptData.map(e => `[${e.timestamp}] ${e.text}`).join('\n');
+  preview.textContent = pcText || '文字起こしデータがありません。先に面接を録音してください。';
 }
 
 // ===== Gemini Web Integration (Copy & Paste) =====
