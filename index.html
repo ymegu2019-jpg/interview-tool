@@ -489,7 +489,7 @@
 <div class="panel active" id="panel-transcribe">
   <div class="card">
     <div class="recording-status idle" id="recordingStatus">
-      待機中 — 「録音開始」を押してください
+      待機中 — Google Meetのタブを開いてから「録音開始」を押してください
     </div>
     <div class="controls">
       <button class="btn btn-primary" id="btnStart" onclick="startRecording()">
@@ -501,6 +501,11 @@
       <button class="btn btn-outline btn-sm" onclick="clearTranscript()">
         クリア
       </button>
+    </div>
+    <div style="background: #eff6ff; border: 2px solid var(--primary); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; color: var(--primary-dark);">
+      📢 <strong>Google Meet面接での使い方</strong><br>
+      「録音開始」を押すと共有ダイアログが出ます → <strong>「Chromeのタブ」</strong>を選び → <strong>Google Meetのタブ</strong>をクリック → 左下の<strong style="color: var(--danger);">「タブの音声も共有」に必ずチェック✅</strong> → 「共有」。<br>
+      これで<strong>イヤホンでも候補者の声が録音</strong>できます。続いてマイク許可（＝あなたの声）も「許可」してください。
     </div>
     <div id="audioSection" style="display: none; margin-bottom: 12px;">
       <div class="card" style="background: #f0fdf4; border-color: var(--success); padding: 12px;">
@@ -539,13 +544,18 @@
   <div class="card">
     <h3>使い方</h3>
     <ol style="font-size: 14px; padding-left: 20px; color: var(--text-light);">
-      <li>Google Meetとこのページをブラウザで並べて表示します</li>
-      <li>「録音開始」を押してマイク使用を許可します（音声録音＋リアルタイム文字起こしが同時に開始）</li>
+      <li>Google Meetとこのページを、ブラウザの<strong>別々のタブ</strong>で開いておきます</li>
+      <li>「録音開始」を押します。<strong style="color: var(--danger);">共有ダイアログが出たら「Chromeのタブ」→ Google Meetのタブを選び、左下の「タブの音声も共有」に必ずチェック</strong>を入れて「共有」を押します（これで候補者の声が録れます）</li>
+      <li>続いてマイクの使用許可を「許可」します（＝面接官ご自身の声）</li>
       <li>面接の質問が始まったら、上の質問ボタンをクリックして現在の質問をマークします</li>
       <li>面接終了後「録音停止」→ 録音ファイルをダウンロード</li>
       <li><strong>おすすめ：</strong>Geminiに録音ファイルをアップロード＆プロンプトを貼り付けて、自動で文字起こし＆採点</li>
       <li>Geminiの採点結果を「採点」タブに貼り戻し → 「結果」タブで合否確認</li>
     </ol>
+    <div style="background: #fffbeb; border: 1px solid var(--warning); border-radius: 8px; padding: 10px 14px; margin-top: 12px; font-size: 13px; color: #92400e;">
+      💡 <strong>イヤホン／ヘッドホンでもOK！</strong> 「タブの音声も共有」にチェックを入れれば、イヤホンで面接していても候補者の声がちゃんと録音されます。<br>
+      画面に出る<strong>リアルタイム文字起こし</strong>はマイクの音だけを拾う仕組みなので参考用です。<strong>正式な文字起こし＆採点は「録音ファイル → Gemini」</strong>をお使いください（こちらが確実です）。
+    </div>
   </div>
 </div>
 
@@ -825,7 +835,10 @@ document.querySelectorAll('.tab').forEach(tab => {
 let mediaRecorder = null;
 let audioChunks = [];
 let audioBlob = null;
-let audioStream = null;
+let audioStream = null;      // 後方互換（旧: マイクのみ）
+let micStream = null;        // マイク（面接官の声）
+let displayStream = null;    // タブ音声（候補者の声）
+let mixContext = null;       // マイク＋タブ音声を合成するAudioContext
 
 // ===== Speech Recognition (Robust Version) =====
 let lastSpeechTime = Date.now();
@@ -987,10 +1000,58 @@ async function startRecording() {
   }
 
   // Start MediaRecorder for audio capture
+  // ★改修: Google Meetの「タブ音声」（＝候補者の声）＋マイク（＝面接官の声）を合成して録音。
+  //   これでイヤホン使用時でも候補者の声が確実に録音される。
   try {
-    audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     audioChunks = [];
-    mediaRecorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm;codecs=opus' });
+
+    // 1) タブ／画面の音声を取得（候補者の声）
+    displayStream = null;
+    try {
+      const ds = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true
+      });
+      // 映像トラックは不要なので停止（音声トラックは維持される）
+      ds.getVideoTracks().forEach(t => t.stop());
+      if (ds.getAudioTracks().length > 0) {
+        displayStream = ds;
+      } else {
+        // ユーザーが「タブの音声も共有」にチェックし忘れた場合
+        ds.getTracks().forEach(t => t.stop());
+        alert('⚠ タブの音声が共有されませんでした。\n\n次回は共有ダイアログで「Chromeのタブ」を選び、左下の「タブの音声も共有」に必ずチェックを入れてください。\n\n（今回はマイクの音声のみで録音を続けます）');
+      }
+    } catch (e) {
+      // ユーザーがキャンセル or 非対応 → マイクのみにフォールバック
+      console.warn('タブ音声の取得をスキップ（マイクのみで録音）:', e);
+    }
+
+    // 2) マイクを取得（面接官の声）
+    micStream = null;
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      console.warn('マイク取得失敗:', e);
+    }
+
+    // 3) 2つの音声を合成して1本の録音ストリームにする
+    let recordStream = null;
+    if (displayStream && micStream) {
+      mixContext = new (window.AudioContext || window.webkitAudioContext)();
+      const dest = mixContext.createMediaStreamDestination();
+      mixContext.createMediaStreamSource(displayStream).connect(dest);
+      mixContext.createMediaStreamSource(micStream).connect(dest);
+      recordStream = dest.stream;
+    } else {
+      recordStream = displayStream || micStream;
+    }
+    audioStream = recordStream; // 後方互換
+
+    if (!recordStream) {
+      throw new Error('録音に使える音声ストリームがありません');
+    }
+
+    mediaRecorder = new MediaRecorder(recordStream, { mimeType: 'audio/webm;codecs=opus' });
     mediaRecorder.ondataavailable = (e) => {
       if (e.data.size > 0) audioChunks.push(e.data);
     };
@@ -1039,9 +1100,16 @@ function forceStopRecording() {
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     try { mediaRecorder.stop(); } catch(e) {}
   }
-  if (audioStream) {
-    audioStream.getTracks().forEach(t => t.stop());
-    audioStream = null;
+  // 全ての音声ストリームを停止（マイク・タブ音声・合成）
+  [micStream, displayStream, audioStream].forEach(s => {
+    if (s) { try { s.getTracks().forEach(t => t.stop()); } catch(e) {} }
+  });
+  micStream = null;
+  displayStream = null;
+  audioStream = null;
+  if (mixContext) {
+    try { mixContext.close(); } catch(e) {}
+    mixContext = null;
   }
 
   // ALWAYS reset buttons no matter what
