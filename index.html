@@ -988,9 +988,29 @@ async function startRecording() {
 
   // Start MediaRecorder for audio capture
   try {
-    audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // ★精度改善: エコーキャンセル/ノイズ抑制をOFFにして、スピーカーから出る
+    //   相手（候補者）の声をマイクがしっかり拾えるようにする。
+    //   （初期設定ONだと相手の声まで打ち消されて文字起こし精度が落ちる）
+    //   autoGainControlはONで、小さい声を自動的に持ち上げる。
+    const audioConstraints = {
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: true,
+      channelCount: 1,
+      sampleRate: 48000
+    };
+    try {
+      audioStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+    } catch (constraintErr) {
+      // 端末が上記設定に非対応なら通常設定でフォールバック
+      console.warn('詳細なマイク設定に非対応。通常設定で録音:', constraintErr);
+      audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    }
     audioChunks = [];
-    mediaRecorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm;codecs=opus' });
+    mediaRecorder = new MediaRecorder(audioStream, {
+      mimeType: 'audio/webm;codecs=opus',
+      audioBitsPerSecond: 128000  // 高音質で録音し、Geminiの文字起こし精度を上げる
+    });
     mediaRecorder.ondataavailable = (e) => {
       if (e.data.size > 0) audioChunks.push(e.data);
     };
@@ -1441,8 +1461,15 @@ function downloadRecording() {
 }
 
 function copyTranscriptPrompt() {
-  const prompt = `以下の音声ファイルは採用面接の録音です。
-この音声を文字起こしし、さらに採点してください。
+  const prompt = `以下の音声ファイルは採用面接（オンライン）の録音です。
+この音声をできる限り正確に文字起こしし、さらに採点してください。
+
+【文字起こしの精度ルール（重要）】
+- 日本語として、話された言葉を一字一句なるべく忠実に書き起こしてください
+- 聞き取りにくい箇所は前後の文脈から自然な日本語に補完し、推測が困難な部分だけ「（聞き取り不明）」と記してください
+- 「えー」「あの」等のフィラーは適宜整理し、意味が通る自然な文章にしてください
+- 相づちや無音は無視し、話の中身を優先してください
+- 音量が小さい・音がこもっている場合でも、できる限り内容を拾ってください
 
 【重要ルール】
 - 面接官（質問する側）の発言は除外し、候補者（回答する側）の発言のみ抽出してください
