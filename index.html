@@ -489,7 +489,7 @@
 <div class="panel active" id="panel-transcribe">
   <div class="card">
     <div class="recording-status idle" id="recordingStatus">
-      待機中 — Google Meetのタブを開いてから「録音開始」を押してください
+      待機中 — 「録音開始」を押してください
     </div>
     <div class="controls">
       <button class="btn btn-primary" id="btnStart" onclick="startRecording()">
@@ -498,11 +498,9 @@
       <button class="btn btn-danger" id="btnStop" onclick="stopRecording()" disabled>
         ⏹ 録音停止＆保存
       </button>
-    </div>
-    <div style="background: #eff6ff; border: 2px solid var(--primary); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; color: var(--primary-dark);">
-      📢 <strong>Google Meet面接での使い方（相手の声だけを録音します）</strong><br>
-      「録音開始」を押すと共有ダイアログが出ます → <strong>「Chromeのタブ」</strong>を選び → <strong>Google Meetのタブ</strong>をクリック → 左下の<strong style="color: var(--danger);">「タブの音声も共有」に必ずチェック✅</strong> → 「共有」。<br>
-      これで<strong>イヤホンでも相手（候補者）の声が録音</strong>できます。文字起こし＆採点は、録音後にGeminiで行います（下記手順）。
+      <button class="btn btn-outline btn-sm" onclick="clearTranscript()">
+        クリア
+      </button>
     </div>
     <div id="audioSection" style="display: none; margin-bottom: 12px;">
       <div class="card" style="background: #f0fdf4; border-color: var(--success); padding: 12px;">
@@ -525,27 +523,29 @@
       </div>
     </div>
 
-    <div style="background: #f0fdf4; border: 1px solid var(--success); border-radius: 8px; padding: 12px 16px; font-size: 14px; color: var(--text);">
-      🎯 <strong>文字起こし＆採点は録音後に行います</strong><br>
-      面接が終わったら「録音停止＆保存」→ 上に出てくる「録音ファイル」から Gemini に渡すと、<strong>相手（候補者）の声だけ</strong>を文字起こし＆採点できます。<br>
-      <span style="font-size: 12px; color: var(--text-light);">※ 面接中に画面へ文字は出ません（相手の声はブラウザの仕組み上リアルタイム表示できないため、録音→Geminiが確実です）。</span>
+    <div id="currentQuestionBanner"></div>
+    <h3>質問タグ（面接中に質問が変わったらクリック）</h3>
+    <div class="question-selector" id="questionSelector"></div>
+
+    <h3>文字起こし結果 <span style="font-size: 12px; color: var(--text-light); font-weight: 400;">（各行の左ボタンで質問の紐づけを変更できます）</span></h3>
+    <div class="transcript-area" id="transcriptArea">
+      <p style="color: var(--text-light); font-size: 14px;">
+        録音を開始すると、ここにリアルタイムで文字起こしが表示されます。<br>
+        Google Meetの音声はPCのマイクから拾います。
+      </p>
     </div>
   </div>
 
   <div class="card">
     <h3>使い方</h3>
     <ol style="font-size: 14px; padding-left: 20px; color: var(--text-light);">
-      <li>Google Meetとこのページを、ブラウザの<strong>別々のタブ</strong>で開いておきます</li>
-      <li>「録音開始」を押します。<strong style="color: var(--danger);">共有ダイアログで「Chromeのタブ」→ Google Meetのタブを選び、左下の「タブの音声も共有」に必ずチェック✅</strong>を入れて「共有」を押します</li>
-      <li>面接を進めます（画面に文字は出ません。相手の声を録音中です）</li>
-      <li>面接終了後「⏹ 録音停止＆保存」→「💾 録音をダウンロード」</li>
-      <li><strong>Geminiで文字起こし＆採点：</strong>「📋 文字起こし＆採点プロンプトをコピー」→「Geminiを開く」→ 録音ファイルをドラッグ＆ドロップ → プロンプトを貼り付けて送信</li>
+      <li>Google Meetとこのページをブラウザで並べて表示します</li>
+      <li>「録音開始」を押してマイク使用を許可します（音声録音＋リアルタイム文字起こしが同時に開始）</li>
+      <li>面接の質問が始まったら、上の質問ボタンをクリックして現在の質問をマークします</li>
+      <li>面接終了後「録音停止」→ 録音ファイルをダウンロード</li>
+      <li><strong>おすすめ：</strong>Geminiに録音ファイルをアップロード＆プロンプトを貼り付けて、自動で文字起こし＆採点</li>
       <li>Geminiの採点結果を「採点」タブに貼り戻し → 「結果」タブで合否確認</li>
     </ol>
-    <div style="background: #fffbeb; border: 1px solid var(--warning); border-radius: 8px; padding: 10px 14px; margin-top: 12px; font-size: 13px; color: #92400e;">
-      💡 <strong>イヤホン／ヘッドホンでもOK！</strong> 「タブの音声も共有」にチェックを入れれば、イヤホンで面接していても相手（候補者）の声がちゃんと録音されます。<br>
-      このツールは<strong>相手の声だけ</strong>を録音します（あなたの声は録りません）。文字起こし＆採点は<strong>「録音ファイル → Gemini」</strong>で確実に行えます。
-    </div>
   </div>
 </div>
 
@@ -554,16 +554,16 @@
   <div class="card ai-scoring-card">
     <h3 style="margin-bottom: 8px;">🤖 AI採点（Gemini Web連携）</h3>
     <p style="font-size: 13px; color: var(--text-light); margin-bottom: 12px;">
-      録音ファイルをGeminiに渡して文字起こし＆採点 → 結果をここに貼り戻すだけ！
+      文字起こし結果を採点プロンプトに自動で埋め込み、Geminiで採点 → 結果を貼り戻すだけ！
     </p>
 
     <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
       <span style="background: var(--primary); color: white; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0;">1</span>
-      <span style="font-size: 14px; font-weight: 600;">プロンプトをコピー → Geminiに録音ファイルと一緒に渡す</span>
+      <span style="font-size: 14px; font-weight: 600;">採点プロンプトをコピー</span>
     </div>
     <div class="controls" style="margin-bottom: 16px;">
-      <button class="btn btn-primary" onclick="copyTranscriptPrompt()">
-        📋 文字起こし＆採点プロンプトをコピー
+      <button class="btn btn-primary" onclick="copyGeminiPrompt()">
+        📋 プロンプトをコピー
       </button>
       <button class="btn btn-outline btn-sm" onclick="openGemini()">
         Geminiを開く ↗
@@ -825,10 +825,7 @@ document.querySelectorAll('.tab').forEach(tab => {
 let mediaRecorder = null;
 let audioChunks = [];
 let audioBlob = null;
-let audioStream = null;      // 後方互換（旧: マイクのみ）
-let micStream = null;        // マイク（面接官の声）
-let displayStream = null;    // タブ音声（候補者の声）
-let mixContext = null;       // マイク＋タブ音声を合成するAudioContext
+let audioStream = null;
 
 // ===== Speech Recognition (Robust Version) =====
 let lastSpeechTime = Date.now();
@@ -977,42 +974,23 @@ function keepAlive() {
 }
 
 async function startRecording() {
-  // ★仕様: オンラインMeet面接では「相手（候補者）の声だけ」を録音する。
-  //   自分（面接官）の声・リアルタイム文字起こしは不要のため使わない。
-  //   相手の声＝Google Meetの「タブ音声」を getDisplayMedia でキャプチャする。
-  //   文字起こし＆採点は、この録音ファイルをGeminiに渡して行う（画面には出さない）。
-  try {
-    audioChunks = [];
-    displayStream = null;
+  isRecording = true;
+  startTime = startTime || Date.now();
+  lastSpeechTime = Date.now();
+  sessionRestarts = 0;
 
-    const ds = await navigator.mediaDevices.getDisplayMedia({
-      video: true,
-      audio: true
-    });
-    // 映像トラックは不要なので停止（音声トラックは維持される）
-    ds.getVideoTracks().forEach(t => t.stop());
-
-    if (ds.getAudioTracks().length === 0) {
-      // 「タブの音声も共有」にチェックし忘れ → 相手の声が録れないので中止
-      ds.getTracks().forEach(t => t.stop());
-      alert('⚠ タブの音声が共有されていません。\n\n相手（候補者）の声を録音するには、共有ダイアログで：\n① 「Chromeのタブ」を選ぶ\n② Google Meetのタブをクリック\n③ 左下の「タブの音声も共有」に必ずチェック✅\n\nもう一度「録音開始」を押してやり直してください。');
-      return;
-    }
-
-    displayStream = ds;
-  } catch (e) {
-    // ユーザーがキャンセル or 非対応
-    console.warn('タブ音声の取得に失敗:', e);
-    alert('録音を開始できませんでした。\n\nGoogle Chromeで、共有ダイアログの「Chromeのタブ」→Meetタブ→「タブの音声も共有」にチェックして「共有」を押してください。');
+  const success = safeStartRecognition();
+  if (!success) {
+    isRecording = false;
+    alert('音声認識を開始できませんでした。ページを再読み込みしてお試しください。');
     return;
   }
 
-  isRecording = true;
-  startTime = startTime || Date.now();
-
-  // 相手の声（タブ音声）だけを録音
+  // Start MediaRecorder for audio capture
   try {
-    mediaRecorder = new MediaRecorder(displayStream, { mimeType: 'audio/webm;codecs=opus' });
+    audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioChunks = [];
+    mediaRecorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm;codecs=opus' });
     mediaRecorder.ondataavailable = (e) => {
       if (e.data.size > 0) audioChunks.push(e.data);
     };
@@ -1025,26 +1003,21 @@ async function startRecording() {
     };
     mediaRecorder.start(1000); // collect data every second
   } catch (e) {
-    console.warn('MediaRecorder開始失敗:', e);
-    alert('録音の開始に失敗しました。ページを再読み込みしてお試しください。');
-    forceStopRecording();
-    return;
+    console.warn('MediaRecorder開始失敗（音声認識は継続）:', e);
   }
 
-  // 相手が「共有を停止」した／タブを閉じた等で音声が切れたら自動で停止＆保存
-  displayStream.getAudioTracks().forEach(track => {
-    track.onended = () => { if (isRecording) stopRecording(); };
-  });
-
+  // Always keep buttons responsive
   document.getElementById('btnStart').disabled = true;
   document.getElementById('btnStop').disabled = false;
 
+  // Start timer
   if (!timerInterval) {
     timerInterval = setInterval(updateTimer, 1000);
   }
 
+  startWatchdog();
   keepAlive();
-  updateRecordingStatus('recording', '<div class="recording-dot"></div> 録音中...（相手の声を録音しています）');
+  updateCurrentQuestionBanner();
 }
 
 function stopRecording() {
@@ -1054,17 +1027,22 @@ function stopRecording() {
 
 function forceStopRecording() {
   isRecording = false;
+  recognitionRunning = false;
+  stopWatchdog();
+
+  if (recognition) {
+    try { recognition.abort(); } catch(e) {}
+    recognition = null;
+  }
 
   // Stop MediaRecorder
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     try { mediaRecorder.stop(); } catch(e) {}
   }
-  // 音声ストリーム（タブ音声）を停止
-  [displayStream, audioStream].forEach(s => {
-    if (s) { try { s.getTracks().forEach(t => t.stop()); } catch(e) {} }
-  });
-  displayStream = null;
-  audioStream = null;
+  if (audioStream) {
+    audioStream.getTracks().forEach(t => t.stop());
+    audioStream = null;
+  }
 
   // ALWAYS reset buttons no matter what
   document.getElementById('btnStart').disabled = false;
@@ -1099,7 +1077,6 @@ function getElapsedTime() {
 // ===== Transcript Rendering =====
 function renderTranscript() {
   const area = document.getElementById('transcriptArea');
-  if (!area) return; // 要素なし（廃止済み）
   let html = '';
   let lastQId = null;
 
@@ -1168,7 +1145,6 @@ function showReassignMenu(idx) {
 
 function updateCurrentQuestionBanner() {
   const banner = document.getElementById('currentQuestionBanner');
-  if (!banner) return; // 要素なし（廃止済み）
   if (currentQuestionId) {
     const q = questions.find(q => q.id === currentQuestionId);
     banner.innerHTML = `<div class="current-question-banner">現在の質問 ▶ Q${q.id}: ${q.title}</div>`;
@@ -1191,7 +1167,6 @@ function clearTranscript() {
 // ===== Question Selector =====
 function renderQuestionSelector() {
   const container = document.getElementById('questionSelector');
-  if (!container) return; // リアルタイム文字起こし廃止に伴い要素なし
   container.innerHTML = questions.map(q => {
     const isActive = currentQuestionId === q.id;
     const hasAnswer = answers[q.id] && answers[q.id].trim().length > 0;
@@ -1225,7 +1200,7 @@ function renderScoreItems() {
         <h4>Q${q.id}: ${escapeHtml(q.title)}</h4>
         <div class="criteria-desc">${escapeHtml(q.question)}</div>
 
-        ${answer ? `<div class="answer-preview"><strong>回答:</strong> ${escapeHtml(answer)}</div>` : ''}
+        ${answer ? `<div class="answer-preview"><strong>回答:</strong> ${escapeHtml(answer)}</div>` : '<div class="answer-preview" style="color: #f59e0b;">⚠ 回答が記録されていません（文字起こしタブで質問タグを付けてください）</div>'}
 
         <div class="score-buttons">
           ${(q.criteria[0] !== undefined ? [0,1,2,3,4,5] : [1,2,3,4,5]).map(s => `
