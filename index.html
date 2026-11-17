@@ -799,7 +799,9 @@ let recognition = null;
 let timerInterval = null;
 let startTime = null;
 let transcriptData = [];
-let geminiModel = 'gemini-2.0-flash';
+// gemini-2.0 / 1.5 系は2026年に提供終了。最新のFlashを指す別名を既定にする
+const GEMINI_MODELS = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+let geminiModel = GEMINI_MODELS[0];
 
 // ===== Init =====
 document.addEventListener('DOMContentLoaded', () => {
@@ -859,7 +861,8 @@ function createRecognition() {
           const entry = {
             text: text,
             timestamp: getElapsedTime(),
-            questionId: currentQuestionId,
+            // 停止後に確定した最後の一言は、停止した時点の質問に紐づける
+            questionId: rec._frozenQid !== undefined ? rec._frozenQid : currentQuestionId,
             time: Date.now()
           };
           transcriptData.push(entry);
@@ -1052,8 +1055,15 @@ function forceStopRecording() {
   stopWatchdog();
 
   if (recognition) {
-    try { recognition.abort(); } catch(e) {}
+    // ★精度改善: abort()だと認識途中の最後の一言が捨てられるため、stop()で確定させてから終了する。
+    //   確定した文は停止時点の質問タグに紐づける。
+    const rec = recognition;
     recognition = null;
+    rec._frozenQid = currentQuestionId;
+    rec.onend = null;
+    rec.onerror = null;
+    try { rec.stop(); } catch(e) {}
+    setTimeout(() => { try { rec.abort(); } catch(e) {} }, 4000);
   }
 
   // Stop MediaRecorder
@@ -1523,46 +1533,99 @@ function buildGeminiWebPrompt() {
   const hasTaggedAnswers = questions.some(q => answers[q.id]?.trim());
 
   if (hasTaggedAnswers) {
-    questions.forEach(q => {
-      const ans = answers[q.id]?.trim() || '（記録なし）';
-      answerSection += `${q.id}の回答：${ans}\n\n`;
-    });
+    // 会社指定の書式：「①の回答　（回答）」
+    answerSection = COMPANY_ANSWER_LABELS
+      .map((label, i) => `${label}${answers[i + 1]?.trim() || ''}`)
+      .join('\n');
   } else if (fullText.trim()) {
-    answerSection += `以下は面接の文字起こし全文です。各質問に該当する部分を判断して採点してください：\n\n${fullText}\n`;
+    answerSection = fullText;
   } else {
     return null; // No data
   }
 
-  const prompt = `採用判定プロンプト（精度調整版）
+  return COMPANY_PROMPT_HEAD + answerSection;
+}
+
+// ★会社指定・チーム共通の採点プロンプト（一字一句このまま。変更しないこと）
+//   ツールが付け足すのは【評価対象の回答】の中身（文字起こし）だけ。
+const COMPANY_ANSWER_LABELS = ['①の回答　', '②の回答　', '③の回答　', '④の回答　', '⑤の回答　'];
+const COMPANY_PROMPT_HEAD = `採用判定プロンプト（精度調整版）
 あなたは、電話営業職の採用選考を行う熟練の採用面接官です。
 提示する「採用基準」に基づき、応募者の回答を厳密に採点し、合格（15点以上）か不合格（14点以下）かを判定してください。
 
 【採点方針：重要】
 「具体的」の定義を以下のように定めます。
+
 単に「頑張った」ではなく、「誰に聞いたか」「何を増やしたか」など、行動の内容が特定できるものは「具体的」とみなし、高評価（4点以上）の対象としてください。
 
 【採点基準表】
-${questions.map(q => {
-  let criteriaText = `${q.id}『${q.title}』\n`;
-  const keys = Object.keys(q.criteria).map(Number).sort((a, b) => a - b);
-  keys.forEach(k => {
-    criteriaText += `${k}点：${q.criteria[k]}\n`;
-  });
-  return criteriaText;
-}).join('\n')}
+①『気づき』や『学び』とその実行
+0点：経験なし
 
-【出力形式】
-以下のフォーマットで出力してください：
-${questions.map(q => `${q.id}. ${q.title}：○点\n理由：（1〜2文で）`).join('\n')}
+1点：事象のみ（例：大事だと学んだ）
 
-合計：○○点 / 25点
-判定：合格 or 不合格（15点以上で合格）
+2点：事象＋感想（例：大事だと思った）
+
+3点：事象＋具体的な感想（例：ミスをして確認不足だと気づいた）
+
+4点：事象＋実行（例：自分の考えを押し付けず柔軟に対応した）
+
+5点：事象＋実行＋変化への気づき（例：ミスがゼロになった、仕組み化の意識が身についた）
+
+②数値目標の経験
+0点：経験なし
+
+1点：数字はあるが結果不明
+
+2点：目標と結果のみ
+
+3点：工夫があるが、行動が不明確
+
+4点：具体的な工夫（例：先輩に聞く、自分なりに行動を変える等）を行い、結果に繋げている
+
+5点：具体的な分析＋数値的な結果（例：商談数と成約率に分解して改善した）
+
+③アドバイスによる行動変容
+0点：特になし
+
+1点：一言レベル
+
+2点：内容＋感想
+
+3点：内容＋実行
+
+4点：内容＋実行＋成果（例：早めに取り組むようになり、転職活動も即実行した）
+
+5点：内容＋実行＋成果＋自ら取りにいく姿勢
+
+④精神的にきつかった経験と克服
+0点：被害者思考
+
+1点：他責
+
+2点：耐えただけ
+
+3点：相談などの乗り越え方がある
+
+4点：具体的な行動による克服（例：数を打つ、アプローチ数を増やす、振り返りを行う）
+
+5点：逆境からの成果（例：練習を重ねてチーム上位まで伸ばした）
+
+⑤成果が出た理由
+0点：運
+
+1点：抽象的（とにかく頑張った）
+
+2点：強みはあるが曖昧
+
+3点：行動ベース（例：毎日ロープレした）
+
+4点：具体的な行動（例：日々の積み重ねの内容が想起できるもの）
+
+5点：再現性の言語化
 
 【評価対象の回答】
-${answerSection}`;
-
-  return prompt;
-}
+`;
 
 function copyGeminiPrompt() {
   const prompt = buildGeminiWebPrompt();
@@ -1600,42 +1663,71 @@ function parseGeminiResult() {
 
   let matchCount = 0;
 
-  // Parse patterns like:
-  // ① 4点  /  1. 気づき：4点  /  ①『気づき』4点  /  1. 4点
-  // Also handle: ① 気づき・学びとその実行：4点
-  questions.forEach(q => {
-    // Multiple regex patterns to match various formats
-    const patterns = [
-      // ①4点 or ① 4点 or ①：4点
-      new RegExp(`[${q.id}①②③④⑤]\\s*[.、：:．]?\\s*[^\\n]*?(\\d)\\s*点`, 'i'),
-      // 1. title：4点
-      new RegExp(`${q.id}[.．)）]\\s*[^\\n]*?(\\d)\\s*点`),
-      // Just look for the question number followed by a score
-      new RegExp(`[${q.id}]\\s*[^\\n]{0,50}?(\\d)\\s*点`),
-    ];
+  // ★読み取り精度改善: 行ごとに「その質問の見出し行」を探し、その行（または直後の行）の点数だけを読む。
+  //   以前は文章全体から最初に見つかった「数字＋点」を拾っていたため、
+  //   「15点以上で合格」や「90点」などを誤って読むことがあった。
+  const lines = input.split(/\r?\n/).map(l => l.replace(/[*＊_`]/g, '').trim());
+  const cleanTitle = t => (t || '').replace(/\s/g, '');
+  const toHalf = s => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
 
-    // Map circled numbers
-    if (circledNums[q.id]) {
-      patterns.unshift(new RegExp(`${circledNums[q.id]}[^\\n]*?(\\d)\\s*点`));
+  const isHeadOf = (line, q) => {
+    const l = toHalf(line);
+    const circ = circledNums[q.id];
+    // 先頭の記号（見出し#、表の|、箇条書き-・）を除いてから①〜⑤を判定
+    if (circ && l.replace(/^[#>|\-・\s]+/, '').replace(/^[【\[]\s*/, '').startsWith(circ)) return true;
+    // 「1.」「1．」「1、」「1：」「1)」「Q1」「問1」「【1】」などで始まる行
+    const head = new RegExp(`^[#>|\\-・\\s]*(?:[【\\[]\\s*)?(?:Q|Ｑ|問|質問)?\\s*${q.id}(?![0-9])\\s*(?:[.．、:：)）』」】\\]]|\\s|『|「|$)`);
+    if (head.test(l)) return true;
+    // 番号がなくても、行がタイトルで始まっていればOK
+    const t = cleanTitle(q.title);
+    return t.length >= 4 && cleanTitle(l).replace(/^[#>\-・]+/, '').startsWith(t);
+  };
+  const isAnyHead = line => questions.some(q => isHeadOf(line, q)) || /^(合計|判定|総合|総評)/.test(line);
+
+  const findScore = line => {
+    // 「0〜5点」「5点満点」などは除外し、最初に出てくる点数を採用
+    const re = /(?<![0-9〜~～\-－])([0-9]{1,2})\s*点(?!満点)/g;
+    let m;
+    while ((m = re.exec(toHalf(line))) !== null) {
+      const v = parseInt(m[1]);
+      if (v >= 0 && v <= 5) return v;
     }
+    return null;
+  };
 
-    for (const pattern of patterns) {
-      const match = input.match(pattern);
-      if (match) {
-        const score = parseInt(match[1]);
-        if (score >= 0 && score <= 5) {
-          scores[q.id] = score;
-          matchCount++;
+  questions.forEach(q => {
+    const minScore = q.criteria[0] !== undefined ? 0 : 1;
+    for (let i = 0; i < lines.length; i++) {
+      if (!isHeadOf(lines[i], q)) continue;
 
-          // Try to extract reason
-          const afterScore = input.substring(input.indexOf(match[0]) + match[0].length);
-          const reasonMatch = afterScore.match(/(?:理由[：:]?\s*|[-—]\s*)([\s\S]*?)(?=\n\s*[①②③④⑤\d]|\n\s*合計|\n\s*判定|\n\s*$)/);
-          if (reasonMatch) {
-            scores['ai_reason_' + q.id] = reasonMatch[1].trim().split('\n')[0];
-          }
-          break;
-        }
+      // 見出し行 → なければ次の2行まで（別の質問の見出しが来たら打ち切り）
+      let score = findScore(lines[i]);
+      let j = i;
+      for (let k = i + 1; score === null && k < Math.min(lines.length, i + 3); k++) {
+        if (isAnyHead(lines[k])) break;
+        score = findScore(lines[k]);
+        j = k;
       }
+      if (score === null || score < minScore) continue;
+
+      scores[q.id] = score;
+      matchCount++;
+
+      // 理由: 見出し以降、次の見出しまでの「理由：」行（なければ点数の後ろの文）
+      delete scores['ai_reason_' + q.id];
+      for (let k = i; k < lines.length; k++) {
+        if (k > i && isAnyHead(lines[k])) break;
+        // 見出し行はタイトル（例：成果が出た理由）を誤って拾わないよう、点数より後ろだけを見る
+        const rm = k === i
+          ? lines[k].match(/点.*?理由\s*[：:]\s*(.+)/)
+          : lines[k].match(/理由\s*[：:]\s*(.+)/);
+        if (rm) { scores['ai_reason_' + q.id] = rm[1].trim(); break; }
+      }
+      if (!scores['ai_reason_' + q.id]) {
+        const am = lines[j].match(/点\s*[-—–:：]\s*(.+)$/);
+        if (am) scores['ai_reason_' + q.id] = am[1].trim();
+      }
+      break;
     }
   });
 
@@ -1667,15 +1759,15 @@ async function testApiKey() {
   resultEl.innerHTML = '<span style="color: var(--text-light);">⏳ テスト中...</span>';
   try {
     // Try multiple models in order
-    const models = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-pro'];
+    const models = GEMINI_MODELS;
     let success = false;
     let lastError = '';
     for (const model of models) {
       resultEl.innerHTML = `<span style="color: var(--text-light);">⏳ ${model} をテスト中...</span>`;
       try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
           body: JSON.stringify({
             contents: [{ parts: [{ text: 'こんにちは。「接続成功」とだけ返してください。' }] }]
           })
@@ -1706,9 +1798,9 @@ async function callGemini(prompt) {
   const key = getApiKey();
   if (!key) throw new Error('APIキーが設定されていません。設定タブでGemini APIキーを入力してください。');
 
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${key}`, {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
@@ -1864,7 +1956,8 @@ async function runAiScoring(answerMap) {
     if (Array.isArray(result)) {
       result.forEach(item => {
         const q = questions.find(q => q.id === item.id);
-        if (q && item.score >= 1 && item.score <= 5) {
+        const minScore = q && q.criteria[0] !== undefined ? 0 : 1;
+        if (q && item.score >= minScore && item.score <= 5) {
           scores[q.id] = item.score;
           if (item.reason) {
             scores['ai_reason_' + q.id] = item.reason;
@@ -1917,7 +2010,8 @@ function loadFromLocal() {
       if (data.interviewerName) document.getElementById('interviewerName').value = data.interviewerName;
       if (data.passScore) document.getElementById('passScore').value = data.passScore;
       if (data.geminiApiKey) document.getElementById('geminiApiKey').value = data.geminiApiKey;
-      if (data.geminiModel) geminiModel = data.geminiModel;
+      // 提供終了した古いモデル名が保存されていたら、新しい既定に置き換える
+      if (data.geminiModel && GEMINI_MODELS.includes(data.geminiModel)) geminiModel = data.geminiModel;
     }
   } catch(e) {}
 }
